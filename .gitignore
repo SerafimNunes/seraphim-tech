@@ -1,0 +1,48 @@
+# Ambientes Virtuais
+venv/
+
+# Variáveis de Ambiente e Arquivos de Configuração Local (CRÍTICO!)
+.env
+.npmrc
+.gitconfig
+
+# Logs, Históricos e Cache de Shell/Sistema
+*.log
+*.sqlite3
+__pycache__/
+*.pyc
+.bash*
+.profile
+.psql_history
+.python_history
+.sudo_as_admin_successful
+.wget-hsts
+.wsl-config
+
+# Configurações de IDEs e Ferramentas Locais
+.cache/
+.config/
+.continue/
+.docker/
+.landscape/
+.local/
+.npm/
+.nvm/
+.ollama/
+.vscode-server/
+.vscode/
+.idea/
+
+# Arquivos Gigantes e Backups (Lixo Digital R18)
+# Pastas e arquivos de backup identificados
+chefia_erp_backup.tar.gz
+*.txt
+*.sh
+*.zip
+motorista-pro/
+seraphim_pdv/
+sigloc-erp-project/
+
+# Arquivos de contexto de migração/RAG
+contexto_arquitetura_erp.txt
+gerar_contexto_rag.py

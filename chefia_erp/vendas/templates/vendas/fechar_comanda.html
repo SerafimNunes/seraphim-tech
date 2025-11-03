@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+    Chefia ERP | Fechar Comanda #{{ comanda.pk }}
+{% endblock title %}
+
+{% block content %}
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-danger text-white text-center">
+                    <h3 class="mb-0"><i class="fas fa-money-check-alt"></i> Fechamento da Comanda #{{ comanda.pk }}</h3>
+                </div>
+                <div class="card-body p-4">
+
+                    <div class="text-center mb-4 p-3 bg-light rounded">
+                        <h5 class="text-muted">Total a Pagar</h5>
+                        <h1 class="display-4 fw-bold text-success" id="valor-total" data-total="{{ comanda.total_venda|floatformat:2 }}">
+                            R$ {{ comanda.total_venda|floatformat:2 }}
+                        </h1>
+                    </div>
+
+                    <form method="post" id="form-fechamento">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label for="forma_pagamento" class="form-label fw-bold">Forma de Pagamento</label>
+                            <select class="form-select" id="forma_pagamento" name="forma_pagamento" required>
+                                <option value="DINHEIRO" selected>Dinheiro</option>
+                                <option value="CARTAO">Cartão de Crédito/Débito</option>
+                                <option value="PIX">PIX</option>
+                                <option value="OUTROS">Outros</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3" id="campo-valor-recebido">
+                            <label for="valor_recebido" class="form-label fw-bold">Valor Recebido (R$)</label>
+                            <input type="number" step="0.01" min="0" class="form-control form-control-lg" id="valor_recebido" name="valor_recebido" value="{{ comanda.total_venda|floatformat:2 }}" required>
+                        </div>
+
+                        <div class="alert mt-4 text-center" id="troco-alerta" role="alert">
+                            <h4 id="troco-titulo" class="alert-heading">Troco:</h4>
+                            <p id="troco-valor" class="display-5 fw-bold mb-0">R$ 0,00</p>
+                        </div>
+                        
+                        <input type="hidden" name="total_venda" value="{{ comanda.total_venda|floatformat:2 }}">
+
+                        <button type="submit" id="btn-confirmar" class="btn btn-danger btn-lg w-100 mt-4">
+                            <i class="fas fa-check-circle"></i> Confirmar Pagamento e Fechar Venda
+                        </button>
+                    </form>
+
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{% url 'vendas:detalhe_comanda' pk=comanda.pk %}" class="btn btn-sm btn-link text-muted">
+                        <i class="fas fa-edit"></i> Voltar e Editar Itens
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+    <script>
+        const totalPagarElement = document.getElementById('valor-total');
+        const valorRecebidoInput = document.getElementById('valor_recebido');
+        const formaPagamentoSelect = document.getElementById('forma_pagamento');
+        const trocoAlerta = document.getElementById('troco-alerta');
+        const trocoValor = document.getElementById('troco-valor');
+        const btnConfirmar = document.getElementById('btn-confirmar');
+        
+        // Pega o valor total base (do Django) e garante que é um número.
+        const totalPagar = parseFloat(totalPagarElement.dataset.total);
+
+        function calcularTroco() {
+            const valorRecebido = parseFloat(valorRecebidoInput.value) || 0;
+            const troco = valorRecebido - totalPagar;
+
+            // Formatação de moeda (simples)
+            const trocoFormatado = troco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            trocoValor.textContent = `R$ ${trocoFormatado}`;
+
+            // Lógica de feedback visual e validação
+            if (troco >= 0) {
+                // Pago ou com troco
+                trocoAlerta.classList.remove('alert-warning');
+                trocoAlerta.classList.add('alert-success');
+                trocoAlerta.querySelector('#troco-titulo').textContent = 'Troco:';
+                btnConfirmar.disabled = false;
+            } else {
+                // Valor insuficiente
+                trocoAlerta.classList.remove('alert-success');
+                trocoAlerta.classList.add('alert-warning');
+                trocoAlerta.querySelector('#troco-titulo').textContent = 'Falta:';
+                // Impede o fechamento se o valor for insuficiente
+                btnConfirmar.disabled = true;
+            }
+        }
+
+        function handleFormaPagamento() {
+            const isDinheiro = formaPagamentoSelect.value === 'DINHEIRO';
+            
+            // Se não for dinheiro, o valor recebido é o total e o troco é zero
+            if (!isDinheiro) {
+                valorRecebidoInput.value = totalPagar.toFixed(2);
+                valorRecebidoInput.readOnly = true;
+            } else {
+                valorRecebidoInput.readOnly = false;
+            }
+            
+            calcularTroco();
+        }
+
+        // Event Listeners
+        valorRecebidoInput.addEventListener('input', calcularTroco);
+        formaPagamentoSelect.addEventListener('change', handleFormaPagamento);
+
+        // Inicialização
+        handleFormaPagamento(); // Define o estado inicial com base na seleção padrão
+    </script>
+{% endblock extra_js %}

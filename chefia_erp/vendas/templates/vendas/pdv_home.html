@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+    Chefia ERP | Ponto de Venda
+{% endblock title %}
+
+{% block content %}
+
+<div class="container-fluid mt-3">
+    <div class="row">
+
+        <div class="col-lg-4 col-md-12 mb-3">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Comandas Abertas ({{ comandas_abertas.count }})</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div id="comandas-list" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+                        {% for comanda in comandas_abertas %}
+                        <a href="{% url 'vendas:detalhe_comanda' pk=comanda.pk %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">Comanda #{{ comanda.pk }}</h6>
+                                <small class="text-muted">Iniciada em: {{ comanda.data_venda|date:"H:i" }}</small>
+                            </div>
+                            <span class="badge bg-warning rounded-pill text-dark">
+                                R$ {{ comanda.total_venda|floatformat:2 }}
+                            </span>
+                        </a>
+                        {% empty %}
+                        <div class="list-group-item text-center text-muted">
+                            Nenhuma comanda aberta no momento.
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="card-footer text-center">
+                    <form method="post" action="{% url 'vendas:iniciar_comanda' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success btn-sm w-100">
+                            <i class="fas fa-plus"></i> Iniciar Nova Comanda
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div id="pedido-resumo" class="card shadow-sm mt-3 border-0">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">Resumo do Pedido</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted text-center">Clique em uma comanda ou inicie uma nova para ver os itens.</p>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="col-lg-8 col-md-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">Cardápio Chefia</h5>
+                </div>
+                <div class="card-body">
+                    
+                    <ul class="nav nav-pills mb-3" id="pills-tab" role="tablist">
+                        <li class="nav-item">
+                            <button class="btn btn-sm btn-outline-info me-2 active" data-filter="all">Tudo</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="btn btn-sm btn-outline-info me-2" data-filter="pratos">Pratos</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="btn btn-sm btn-outline-info" data-filter="bebidas">Bebidas</button>
+                        </li>
+                    </ul>
+
+                    <div class="row row-cols-1 row-cols-md-3 g-3" id="cardapio-items">
+                        {% for item in categorias_cardapio %}
+                            <div class="col cardapio-item" data-category="{{ item.categoria.nome|lower }}">
+                                <div class="card h-100 border-info">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">{{ item.produto.nome }}</h5>
+                                        <p class="card-text text-success fw-bold">R$ {{ item.preco_base|floatformat:2 }}</p>
+                                        <small class="text-muted">{{ item.categoria.nome }}</small>
+                                    </div>
+                                    <div class="card-footer">
+                                        <button class="btn btn-sm btn-block btn-primary w-100" disabled>
+                                            Adicionar (Selecione a Comanda)
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+    <script>
+        // Lógica futura para filtros e interatividade da tela inicial (mantemos simples)
+    </script>
+{% endblock extra_js %}

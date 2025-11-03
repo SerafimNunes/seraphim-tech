@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}PDV - Caixa em Operação | {{ caixa.nome }}{% endblock %}
+
+{% block content %}
+{# As variáveis de contexto (url_api_categorias, url_api_itens, etc.) virão da pdv_home_view #}
+
+<style>
+    /* Estilos simples para o PDV - idealmente em um arquivo CSS separado */
+    .pdv-container { display: flex; height: calc(100vh - 120px); gap: 1rem; }
+    .pdv-column { padding: 1rem; border-radius: 0.5rem; background-color: var(--bs-light); overflow-y: auto; }
+    .column-mesas { flex-basis: 20%; min-width: 250px; }
+    .column-cardapio { flex-basis: 55%; }
+    .column-pedido { flex-basis: 25%; min-width: 300px; background-color: var(--bs-white); border: 1px solid var(--bs-gray-300); }
+    .card-item-menu { cursor: pointer; padding: 10px; border: 1px solid var(--bs-gray-200); border-radius: 5px; text-align: center; transition: all 0.2s; }
+    .card-item-menu:hover { background-color: var(--bs-primary-100); border-color: var(--bs-primary); transform: translateY(-2px); }
+    .item-menu-preco { font-weight: bold; font-size: 1.1em; }
+    .category-tabs { display: flex; flex-wrap: wrap; gap: 5px; }
+    .btn-category { background-color: var(--bs-secondary-100); color: var(--bs-secondary); border: none; }
+    .btn-category.active { background-color: var(--bs-primary); color: white; }
+    .item-pedido-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--bs-gray-300); }
+    .total-pedido { font-size: 1.5em; font-weight: bold; display: flex; justify-content: space-between; border-top: 2px solid var(--bs-gray-500); padding-top: 5px; }
+    .btn-pdv { width: 100%; margin-bottom: 5px; }
+</style>
+
+<div class="pdv-container">
+    
+    <div class="pdv-column column-mesas">
+        <div class="pedido-header">
+            <h4 class="mb-3">{% trans "Mesas / Comandas" %}</h4>
+            <div class="alert alert-info py-1">
+                {% trans "Caixa Ativo:" %} **{{ caixa.nome }}**
+            </div>
+        </div>
+        
+        <div class="lista-mesas">
+            {# Este bloco é um placeholder, a lógica real de mesas viria com o app 'vendas' #}
+            <div class="item-mesa active" data-mesa-id="1">
+                {% trans "Mesa" %} 1 - R$ 55,50
+            </div>
+            <div class="item-mesa" data-mesa-id="2">
+                {% trans "Comanda" %} 102 - R$ 12,00
+            </div>
+            <div class="item-mesa" data-mesa-id="3">
+                {% trans "Mesa" %} 5 - R$ 0,00 (Vazia)
+            </div>
+            <button class="btn-pdv btn-mesa mt-3">
+                <i class="fas fa-plus"></i> {% trans "Nova Comanda" %}
+            </button>
+        </div>
+    </div>
+    
+    <div class="pdv-column column-cardapio">
+        <div class="pedido-header">
+            <h4 class="mb-3">{% trans "Cardápio" %}</h4>
+        </div>
+        
+        <input type="text" class="form-control mb-3" placeholder="{% trans 'Buscar produto...' %}" id="search-input">
+        
+        {# NOVO: Área para os botões de Categorias (dinâmico) #}
+        <div class="category-tabs mb-3" id="category-tabs">
+            <button class="btn btn-sm btn-category active" data-category-id="all">{% trans "TODOS" %}</button>
+            {# Categorias serão injetadas aqui #}
+        </div>
+
+        {# NOVO: Área para os Cards de Itens (dinâmico) #}
+        <div class="row products-grid" id="products-grid">
+            <p class="text-center text-muted">{% trans "Carregando cardápio..." %}</p>
+            {# Itens serão injetados aqui #}
+        </div>
+    </div>
+    
+    <div class="pdv-column column-pedido d-flex flex-column">
+        <div class="pedido-header">
+            <h4 class="mb-3">{% trans "Pedido Atual" %} #<span id="pedido-id">NOVO</span></h4>
+            <p class="text-muted">{% trans "Atendimento:" %} **{% firstof request.user.get_full_name request.user.username %}**</p>
+        </div>
+        
+        {# NOVO: Container dinâmico para os itens do pedido #}
+        <div class="lista-itens-pedido flex-grow-1" id="lista-itens-pedido">
+             <div class="alert alert-warning text-center">{% trans "Carrinho vazio." %}</div>
+        </div>
+        
+        <div class="pedido-footer mt-auto pt-3">
+            <div class="total-pedido">
+                <span>{% trans "TOTAL" %}</span>
+                <span id="valor-total-pedido">R$ 0,00</span>
+            </div>
+            
+            <div class="button-group mt-3">
+                <button class="btn-pdv btn-warning" data-bs-toggle="modal" data-bs-target="#modalMovimentoAvulso">
+                    <i class="fas fa-hand-holding-usd"></i> {% trans "Sangria/Suprimento" %}
+                </button>
+                
+                <button class="btn-pdv btn-success" id="btnFinalizarVenda" disabled>
+                    <i class="fas fa-money-bill-wave"></i> {% trans "Finalizar Venda" %}
+                </button>
+                <button class="btn-pdv btn-danger" id="btnCancelarPedido" disabled>
+                    <i class="fas fa-times-circle"></i> {% trans "Cancelar Pedido" %}
+                </button>
+                <a href="{% url 'caixa:fechar_sessao' %}" class="btn-pdv btn-secondary">
+                    <i class="fas fa-lock"></i> {% trans "Fechar Sessão de Caixa" %}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Conteúdo do Modal de Sangria/Suprimento (Mantido Inalterado) #}
+<div class="modal fade" id="modalMovimentoAvulso" tabindex="-1" aria-labelledby="modalMovimentoAvulsoLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="formMovimentoAvulso" method="post" action="{% url 'caixa:registrar_movimento_avulso' %}">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalMovimentoAvulsoLabel"><i class="fas fa-hand-holding-usd mr-2"></i>{% trans "Movimento Avulso" %}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-sm text-gray-600 mb-4">{% trans "Use esta função para registrar a retirada de dinheiro (Sangria) ou a adição de troco (Suprimento) ao caixa ativo." %}</p>
+                    
+                    <div class="space-y-4">
+                        
+                        <div class="form-group mb-3">
+                            <label for="id_tipo" class="form-label">{% trans "Tipo de Movimento" %}</label>
+                            <select name="tipo" id="id_tipo" class="form-control" required>
+                                <option value="SUPRIMENTO">{% trans "Suprimento (Entrada)" %}</option>
+                                <option value="SANGRIA">{% trans "Sangria (Saída)" %}</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="id_valor" class="form-label">{% trans "Valor" %}</label>
+                            <input type="number" step="0.01" min="0" name="valor" id="id_valor" class="form-control" placeholder="{% trans 'Ex: 50.00' %}" required>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label for="id_descricao" class="form-label">{% trans "Descrição/Motivo" %}</label>
+                            <input type="text" name="descricao" id="id_descricao" class="form-control" placeholder="{% trans 'Motivo do movimento' %}" required>
+                        </div>
+                        
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancelar" %}</button>
+                    <button type="submit" class="btn btn-primary">{% trans "Registrar Movimento" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+    // Variáveis de contexto (URLs das APIs) injetadas pelo Django
+    const API_URLS = {
+        categorias: "{{ url_api_categorias }}",
+        itens: "{{ url_api_itens }}",
+        registrarMovimento: "{% url 'caixa:registrar_movimento_avulso' %}",
+        // TODO: Mudar para URL real de registro de venda quando o app 'vendas' estiver pronto
+        registrarVenda: "{% url 'caixa:pdv_home' %}" // Placeholder
+    };
+
+    let cardapioCompleto = [];
+    let carrinho = []; // {item_id: 1, nome: 'Espetinho', preco: 15.00, quantidade: 1}
+
+    // --- FUNÇÕES UTILITÁRIAS ---
+
+    function getCookie(name) {
+        // Função utilitária para obter o token CSRF
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                let cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    const csrftoken = getCookie('csrftoken');
+
+    function formatCurrency(value) {
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    }
+
+    // --- FUNÇÕES DE RENDERIZAÇÃO ---
+
+    function renderCategories(categories) {
+        const tabsContainer = document.getElementById('category-tabs');
+        
+        // Mantém o botão TODOS
+        let html = tabsContainer.innerHTML; 
+
+        categories.forEach(cat => {
+            html += `<button class="btn btn-sm btn-category" data-category-id="${cat.id}">${cat.nome.toUpperCase()}</button>`;
+        });
+
+        tabsContainer.innerHTML = html;
+
+        // Adiciona listeners para filtrar os produtos
+        tabsContainer.querySelectorAll('.btn-category').forEach(button => {
+            button.addEventListener('click', function() {
+                // Remove 'active' de todos e adiciona no clicado
+                tabsContainer.querySelector('.btn-category.active')?.classList.remove('active');
+                this.classList.add('active');
+                
+                const categoryId = this.dataset.categoryId;
+                filterProducts(categoryId);
+            });
+        });
+    }
+    
+    function renderProducts(products) {
+        const grid = document.getElementById('products-grid');
+        let html = '';
+
+        if (products.length === 0) {
+            html = `<p class="text-center text-muted">{% trans "Nenhum item encontrado nesta categoria." %}</p>`;
+        } else {
+            products.forEach(item => {
+                // Garantimos que 'preco' está formatado como número
+                const preco = parseFloat(item.preco); 
+                
+                html += `
+                    <div class="col-md-4 col-sm-6 mb-3">
+                        <div class="card-item-menu" data-item='${JSON.stringify({
+                            id: item.id,
+                            nome: item.produto.nome, // Usamos o nome do produto no itemcardapio
+                            preco: preco
+                        })}'>
+                            <div class="item-menu-nome">${item.produto.nome}</div>
+                            <small>${item.categoria.nome}</small>
+                            <div class="item-menu-preco text-success">${formatCurrency(preco)}</div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        grid.innerHTML = html;
+
+        // Adiciona listener para adicionar ao carrinho
+        grid.querySelectorAll('.card-item-menu').forEach(card => {
+            card.addEventListener('click', function() {
+                const itemData = JSON.parse(this.dataset.item);
+                addItemToCart(itemData);
+            });
+        });
+    }
+    
+    function renderCart() {
+        const lista = document.getElementById('lista-itens-pedido');
+        const totalElement = document.getElementById('valor-total-pedido');
+        const btnFinalizar = document.getElementById('btnFinalizarVenda');
+        const btnCancelar = document.getElementById('btnCancelarPedido');
+        let html = '';
+        let total = 0;
+
+        if (carrinho.length === 0) {
+            html = `<div class="alert alert-warning text-center">{% trans "Carrinho vazio." %}</div>`;
+            btnFinalizar.disabled = true;
+            btnCancelar.disabled = true;
+        } else {
+            carrinho.forEach((item, index) => {
+                const subtotal = item.preco * item.quantidade;
+                total += subtotal;
+
+                html += `
+                    <div class="item-pedido-row" data-item-index="${index}">
+                        <div class="d-flex align-items-center">
+                            <button class="btn btn-sm btn-light btn-remove-item me-2" data-index="${index}"><i class="fas fa-minus"></i></button>
+                            <span class="fw-bold">${item.quantidade}x</span>
+                        </div>
+                        <span class="flex-grow-1 ms-3">${item.nome}</span>
+                        <span>${formatCurrency(subtotal)}</span>
+                    </div>
+                `;
+            });
+            btnFinalizar.disabled = false;
+            btnCancelar.disabled = false;
+        }
+
+        lista.innerHTML = html;
+        totalElement.textContent = formatCurrency(total);
+        
+        // Adiciona listener para remover/diminuir itens do carrinho
+        lista.querySelectorAll('.btn-remove-item').forEach(button => {
+            button.addEventListener('click', function() {
+                const index = parseInt(this.dataset.index);
+                removeItemFromCart(index);
+            });
+        });
+    }
+
+
+    // --- FUNÇÕES DE LÓGICA DO PDV ---
+
+    function addItemToCart(itemData) {
+        const existingItemIndex = carrinho.findIndex(item => item.id === itemData.id);
+        
+        if (existingItemIndex > -1) {
+            carrinho[existingItemIndex].quantidade += 1;
+        } else {
+            carrinho.push({ ...itemData, quantidade: 1 });
+        }
+        renderCart();
+    }
+    
+    function removeItemFromCart(index) {
+        if (carrinho[index].quantidade > 1) {
+            carrinho[index].quantidade -= 1;
+        } else {
+            carrinho.splice(index, 1);
+        }
+        renderCart();
+    }
+    
+    function filterProducts(categoryId) {
+        let filtered;
+        if (categoryId === 'all') {
+            filtered = cardapioCompleto;
+        } else {
+            // Filtra pelo ID da categoria
+            filtered = cardapioCompleto.filter(item => item.categoria.id === parseInt(categoryId));
+        }
+        renderProducts(filtered);
+    }
+    
+    function searchProducts(query) {
+        const queryLower = query.toLowerCase();
+        const filtered = cardapioCompleto.filter(item => 
+            item.produto.nome.toLowerCase().includes(queryLower) ||
+            item.categoria.nome.toLowerCase().includes(queryLower)
+        );
+        
+        // Remove a seleção de categoria ao pesquisar
+        document.getElementById('category-tabs').querySelector('.btn-category.active')?.classList.remove('active');
+
+        renderProducts(filtered);
+    }
+    
+
+    // --- FUNÇÕES DE DADOS (API) ---
+
+    async function fetchMenuData() {
+        try {
+            // 1. Fetch Categorias
+            const catResponse = await fetch(API_URLS.categorias);
+            const categories = await catResponse.json();
+            renderCategories(categories);
+
+            // 2. Fetch Itens
+            const itemResponse = await fetch(API_URLS.itens);
+            const items = await itemResponse.json();
+            
+            // Armazena no global e renderiza o inicial (TODOS)
+            cardapioCompleto = items;
+            renderProducts(cardapioCompleto);
+
+        } catch (error) {
+            console.error("Erro ao carregar dados do menu:", error);
+            document.getElementById('products-grid').innerHTML = `<p class="text-danger">{% trans "Falha ao carregar cardápio. Verifique a conexão com a API." %}</p>`;
+        }
+    }
+
+
+    // --- INICIALIZAÇÃO E LISTENERS GLOBAIS ---
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Carregar dados do Menu (APIs)
+        fetchMenuData();
+
+        // 2. Listener de Busca
+        document.getElementById('search-input').addEventListener('input', function() {
+            searchProducts(this.value);
+        });
+        
+        // 3. Listener para Cancelar Pedido
+        document.getElementById('btnCancelarPedido').addEventListener('click', function() {
+            if (confirm("{% trans 'Tem certeza que deseja cancelar o pedido atual?' %}")) {
+                carrinho = [];
+                renderCart();
+            }
+        });
+        
+        // 4. Listener para Finalizar Venda (TODO: Implementar chamada à API de Vendas)
+        document.getElementById('btnFinalizarVenda').addEventListener('click', function() {
+            // Aqui seria a lógica para abrir o Modal de Pagamento
+            // e, após a confirmação, chamar API_URLS.registrarVenda via AJAX.
+            alert("TODO: Implementar Modal de Pagamento e API de Vendas.");
+        });
+
+        // 5. Lógica de Movimento Avulso (Mantida do código original)
+        const modalEl = document.getElementById('modalMovimentoAvulso');
+        const form = document.getElementById('formMovimentoAvulso');
+        const valorInput = document.getElementById('id_valor');
+        const modal = new bootstrap.Modal(modalEl);
+
+        valorInput.addEventListener('blur', function() {
+            let value = parseFloat(this.value);
+            if (!isNaN(value)) { this.value = value.toFixed(2); }
+        });
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+            const data = {};
+            // Popula o objeto 'data' com os valores do formulário
+            for (let [key, value] of formData.entries()) { data[key] = value; }
+
+            data['valor'] = parseFloat(data['valor']).toFixed(2);
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> {% trans "Registrando..." %}';
+
+            fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken,
+                },
+                body: JSON.stringify(data),
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { 
+                        throw new Error(err.message || `Erro HTTP: ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                modal.hide();
+                form.reset();
+                alert(`✅ {% trans "Sucesso!" %} ${data.mensagem}`); 
+                // TODO: Adicionar lógica para recarregar o saldo do caixa na tela, se houver um display.
+            })
+            .catch(error => {
+                console.error('Erro ao registrar movimento:', error);
+                alert(`❌ {% trans "Erro ao registrar movimento:" %} ${error.message}`);
+            })
+            .finally(() => {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '{% trans "Registrar Movimento" %}';
+            });
+        });
+    });
+</script>
+{% endblock %}

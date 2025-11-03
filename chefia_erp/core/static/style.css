@@ -1,0 +1,212 @@
+#core/static/style.css
+/* core/static/style.css
+   Design Principal do Ponto de Venda (PDV)
+   Foco: Layout de 3 colunas, Responsividade, Clean Design.
+*/
+
+:root {
+    --primary-color: #007bff; /* Azul primário (botões de ação) */
+    --secondary-color: #6c757d; /* Cinza secundário */
+    --success-color: #28a745; /* Verde (venda/produção ok) */
+    --danger-color: #dc3545; /* Vermelho (cancelar/erro) */
+    --bg-light: #f8f9fa; /* Fundo principal */
+    --bg-dark: #343a40; /* Fundo para navbars/sidebars */
+    --text-dark: #212529;
+    --border-color: #dee2e6;
+    --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Base Reset e Tipografia */
+body {
+    font-family: var(--font-family);
+    background-color: var(--bg-light);
+    color: var(--text-dark);
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+}
+
+/* LAYOUT PRINCIPAL DO PDV (TRÊS COLUNAS) */
+/* Usado em core/templates/caixa/pdv.html */
+.pdv-container {
+    display: grid;
+    /* Define o layout de 3 colunas para telas grandes */
+    /* 1. Mesas (Fixa pequena) / 2. Cardápio (Flexível) / 3. Pedido (Fixa média) */
+    grid-template-columns: 200px 1fr 350px;
+    height: 100vh; /* Altura total da tela */
+    overflow: hidden; /* Evita scrolls desnecessários no container principal */
+}
+
+/* ESTILOS DAS COLUNAS */
+.pdv-column {
+    padding: 15px;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto; /* Scroll individual para cada seção */
+}
+
+/* 1. Coluna de Mesas/Comandas */
+.column-mesas {
+    background-color: #ffffff; /* Fundo branco para destaque */
+    border-right: 2px solid var(--primary-color);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+}
+
+/* 2. Coluna de Cardápio (Busca e Itens) */
+.column-cardapio {
+    background-color: var(--bg-light);
+}
+
+/* 3. Coluna de Detalhe do Pedido/Caixa */
+.column-pedido {
+    background-color: #ffffff;
+    border-left: 1px solid var(--border-color);
+}
+
+/* ESTILOS DE ELEMENTOS GERAIS */
+/* Botões para o PDV */
+.btn-pdv {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    text-align: center;
+    transition: background-color 0.2s;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.btn-mesa {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.btn-mesa:hover {
+    background-color: #5a6268;
+}
+
+.btn-danger {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+/* Cartões de Item do Cardápio */
+.card-item-menu {
+    background-color: white;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    padding: 10px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.card-item-menu:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.item-menu-nome {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+/* Listagem de Mesas/Comandas */
+.lista-mesas {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.item-mesa {
+    background-color: var(--bg-light);
+    padding: 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: center;
+    border-left: 4px solid transparent;
+}
+
+.item-mesa.active {
+    border-left-color: var(--primary-color);
+    background-color: #e2f0ff; /* Light blue background */
+    font-weight: bold;
+}
+
+/* Detalhes do Pedido */
+.pedido-header {
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.lista-itens-pedido {
+    max-height: calc(100vh - 300px); /* Altura fixa para scrollar */
+    overflow-y: auto;
+    margin-bottom: 15px;
+}
+
+.item-pedido-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px dotted #ccc;
+}
+
+.total-pedido {
+    font-size: 1.2rem;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 2px solid var(--primary-color);
+}
+
+/* RESPONSIVIDADE (Tablets e Dispositivos Menores) */
+@media (max-width: 992px) {
+    .pdv-container {
+        /* Muda para 2 colunas: Cardápio (principal) e Pedido */
+        /* Mesas serão acessadas por um toggle/modal */
+        grid-template-columns: 1fr 300px; 
+    }
+
+    .column-mesas {
+        /* Esconde a coluna de mesas (será um overlay ou modal) */
+        display: none; 
+    }
+}
+
+@media (max-width: 576px) {
+    .pdv-container {
+        /* Muda para 1 coluna (empilhamento vertical) */
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .pdv-column {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        height: auto;
+    }
+
+    .column-pedido {
+        /* Garante que o pedido fique no final e visível */
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+    }
+
+    .lista-itens-pedido {
+        max-height: 40vh; /* Ajusta a altura máxima para telas pequenas */
+    }
+}

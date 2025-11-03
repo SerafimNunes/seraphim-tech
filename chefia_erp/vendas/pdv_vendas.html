@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - Chefia ERP</title>
+    <!-- Incluindo Tailwind CSS via CDN para fins de demonstração e estilo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-blue': '#1e40af',
+                        'secondary-orange': '#f97316',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Estilos customizados para a visualização do PDV */
+        body {
+            background-color: #f3f4f6; /* Fundo cinza claro */
+            font-family: 'Inter', sans-serif;
+        }
+        .scrollable-menu {
+            height: calc(100vh - 12rem); /* Altura da tela menos cabeçalho e rodapé */
+            overflow-y: auto;
+            border-right: 1px solid #e5e7eb;
+        }
+        .scrollable-comanda {
+             max-height: calc(100vh - 20rem); /* Mais espaço para o resumo */
+             overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Cabeçalho (Fixo) -->
+    <header class="bg-primary-blue text-white shadow-lg p-4 flex justify-between items-center">
+        <h1 class="text-2xl font-bold">Chefia PDV</h1>
+        <div class="text-sm">
+            Comanda Ativa: #{{ comanda.pk }} | Total: R$ <span id="comanda-total" class="text-xl font-extrabold text-secondary-orange">{{ comanda.valor_total|stringformat:"#.2f"|default:"0.00" }}</span>
+        </div>
+        <a href="{% url 'core:home' %}" class="bg-secondary-orange hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-200">
+            Sair do PDV
+        </a>
+    </header>
+
+    <!-- Exibição de Mensagens (Alerta customizado) -->
+    {% if mensagem_pdv %}
+    <div id="message-box" class="p-4 text-sm font-medium transition-opacity duration-300 {% if tipo_mensagem == 'sucesso' %}bg-green-100 text-green-800 border-green-400{% else %}bg-red-100 text-red-800 border-red-400{% endif %} border-l-4" role="alert">
+        {{ mensagem_pdv }}
+    </div>
+    {% endif %}
+
+    <!-- Container Principal (Flex para Menu e Comanda) -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Lado Esquerdo: Cardápio (Menu) -->
+        <div class="w-full lg:w-3/5 p-4 scrollable-menu bg-white">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2 text-primary-blue">Cardápio</h2>
+            
+            {% for item in itens_cardapio %}
+                <!-- Item do Cardápio -->
+                <div class="bg-gray-50 p-4 mb-3 rounded-xl shadow-sm hover:shadow-md transition duration-150 flex justify-between items-center">
+                    <div>
+                        <p class="text-lg font-semibold text-gray-800">{{ item.nome }}</p>
+                        <p class="text-sm text-gray-500">{{ item.descricao_curta }} | Estoque: {{ item.produto.quantidade_estoque|default:"?" }}</p>
+                        <p class="text-xl font-bold text-secondary-orange">R$ {{ item.preco_venda|stringformat:"#.2f" }}</p>
+                    </div>
+                    
+                    <!-- Formulário Rápido de Adição -->
+                    <form action="{% url 'vendas:adicionar_item_comanda' %}" method="POST" class="flex items-center space-x-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="item_cardapio_id" value="{{ item.pk }}">
+                        <input type="number" name="quantidade" value="1" min="1" class="w-16 p-2 border rounded-lg text-center focus:ring-primary-blue focus:border-primary-blue" required>
+                        <button type="submit" class="bg-primary-blue hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl shadow transition duration-200">
+                            + Add
+                        </button>
+                    </form>
+                </div>
+            {% empty %}
+                <p class="text-center text-gray-500 mt-10">Nenhum item ativo no cardápio.</p>
+            {% endfor %}
+        </div>
+
+        <!-- Lado Direito: Comanda Ativa e Fechamento -->
+        <div class="w-full lg:w-2/5 p-4 bg-gray-100 flex flex-col">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2 text-primary-blue">Comanda #{{ comanda.pk }}</h2>
+
+            <!-- Itens na Comanda (Scrollable) -->
+            <div class="flex-1 scrollable-comanda mb-4 p-2 bg-white rounded-lg shadow-inner">
+                {% for item_comanda in itens_comanda %}
+                    <div class="flex justify-between items-center border-b py-2 last:border-b-0">
+                        <!-- Detalhes do Item -->
+                        <div>
+                            <p class="font-semibold text-gray-800">{{ item_comanda.quantidade }}x {{ item_comanda.item_cardapio.nome }}</p>
+                            <p class="text-xs text-gray-500">{{ item_comanda.observacoes }}</p>
+                            <p class="text-sm font-medium">R$ {{ item_comanda.subtotal|stringformat:"#.2f" }}</p>
+                        </div>
+                        
+                        <!-- Botão de Remover Item -->
+                        <form action="{% url 'vendas:remover_item_comanda' item_comanda.pk %}" method="POST" class="ml-4">
+                            {% csrf_token %}
+                            <input type="hidden" name="quantidade_remover" value="1">
+                            <button type="submit" class="text-red-500 hover:text-red-700 p-1 rounded-full bg-red-100 transition duration-150" title="Remover 1 unidade">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </form>
+                    </div>
+                {% empty %}
+                    <p class="text-center text-gray-500 pt-8">Comanda Vazia. Adicione itens.</p>
+                {% endfor %}
+            </div>
+
+            <!-- Resumo e Fechamento de Venda -->
+            <div class="bg-white p-4 rounded-lg shadow-lg">
+                <p class="text-lg font-semibold mb-2">Total da Comanda:</p>
+                <p class="text-3xl font-extrabold text-primary-blue mb-4">R$ {{ comanda.valor_total|stringformat:"#.2f"|default:"0.00" }}</p>
+
+                <!-- Formulário de Finalização de Venda -->
+                <form action="{% url 'vendas:finalizar_venda' %}" method="POST">
+                    {% csrf_token %}
+                    <input type="hidden" name="comanda_id" value="{{ comanda.pk }}">
+
+                    <label for="forma_pagamento" class="block text-sm font-medium text-gray-700 mb-1">Forma de Pagamento</label>
+                    <select id="forma_pagamento" name="forma_pagamento" class="w-full p-2 border rounded-lg mb-4 focus:ring-primary-blue focus:border-primary-blue" required>
+                        <option value="">Selecione...</option>
+                        {% for forma_value, forma_label in formas_pagamento %}
+                            <option value="{{ forma_value }}">{{ forma_label }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <button type="submit" 
+                            id="btn-finalizar"
+                            class="w-full bg-secondary-orange hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow-lg transition duration-200 disabled:opacity-50"
+                            {% if not itens_comanda %}disabled{% endif %}>
+                        Finalizar Venda
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script para esconder a mensagem após 5 segundos -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const messageBox = document.getElementById('message-box');
+            if (messageBox) {
+                setTimeout(() => {
+                    messageBox.style.opacity = '0';
+                    setTimeout(() => messageBox.remove(), 300); // Remove depois da transição
+                }, 5000); 
+            }
+
+            // Desabilita o botão de finalizar se o total for 0.00 (Embora a lógica do template já faça isso, este é um bom fallback JS)
+            const finalizarBtn = document.getElementById('btn-finalizar');
+            const comandaTotalText = document.getElementById('comanda-total').textContent.trim();
+            const comandaTotal = parseFloat(comandaTotalText.replace('R$', '').replace(',', '.'));
+
+            if (comandaTotal <= 0 && finalizarBtn) {
+                finalizarBtn.disabled = true;
+            } else if (finalizarBtn) {
+                 finalizarBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

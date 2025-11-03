@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+    Comanda #{{ comanda.pk }} | Detalhes do Pedido
+{% endblock title %}
+
+{% block content %}
+
+<div class="container-fluid mt-3">
+    
+    <div class="row mb-3 align-items-center">
+        <div class="col-8">
+            <h2 class="mb-0">Comanda Aberta #{{ comanda.pk }}</h2>
+            <p class="text-muted">Status: <span class="badge bg-warning text-dark">{{ comanda.get_status_display }}</span></p>
+        </div>
+        <div class="col-4 text-end">
+            <a href="{% url 'vendas:pdv_home' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Voltar ao PDV
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+
+        <div class="col-lg-5 col-md-12 mb-3">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">Itens do Pedido</h4>
+                </div>
+                <div class="card-body p-0">
+                    
+                    <table class="table table-striped table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Produto</th>
+                                <th scope="col" class="text-center">Qtd.</th>
+                                <th scope="col" class="text-end">Preço Unit.</th>
+                                <th scope="col" class="text-end">Subtotal</th>
+                                <th scope="col">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="itens-comanda-body">
+                            {% for item in comanda.itens_venda.all %}
+                            <tr>
+                                <td>{{ item.produto.nome }}</td>
+                                <td class="text-center">{{ item.quantidade|floatformat:0 }}</td>
+                                <td class="text-end">R$ {{ item.preco_unitario|floatformat:2 }}</td>
+                                <td class="text-end">R$ {{ item.subtotal|floatformat:2 }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-danger remove-item-btn" data-item-id="{{ item.pk }}" disabled>
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">Nenhum item adicionado ainda.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                </div>
+                <div class="card-footer bg-light">
+                    <div class="d-flex justify-content-between fw-bold fs-5 mb-3">
+                        <span>Total a Pagar:</span>
+                        <span id="total-geral">R$ {{ comanda.total_venda|floatformat:2 }}</span>
+                    </div>
+
+                    <a href="{% url 'vendas:fechar_comanda' pk=comanda.pk %}" class="btn btn-primary btn-lg w-100">
+                        <i class="fas fa-cash-register"></i> Fechar Comanda e Pagar
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7 col-md-12">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0">Adicionar Itens ao Pedido</h4>
+                </div>
+                <div class="card-body" style="max-height: 800px; overflow-y: auto;">
+                    
+                    <div class="input-group mb-3">
+                        <input type="text" id="item-search" class="form-control" placeholder="Buscar no cardápio...">
+                    </div>
+
+                    <div id="cardapio-items-grid">
+                        
+                        {% for categoria, itens in cardapio_agrupado.items %} 
+                            <h5 class="mt-4 border-bottom pb-1">{{ categoria.nome }}</h5>
+                            
+                            <div class="row row-cols-2 row-cols-md-4 g-2">
+                                {% for item_cardapio in itens %}
+                                <div class="col">
+                                    <div class="card item-card h-100" data-item-id="{{ item_cardapio.pk }}">
+                                        <div class="card-body text-center p-2">
+                                            <h6 class="card-title mb-1">{{ item_cardapio.produto.nome|truncatechars:20 }}</h6>
+                                            <p class="mb-0 fw-bold text-primary">R$ {{ item_cardapio.preco_base|floatformat:2 }}</p>
+                                        </div>
+                                        <div class="card-footer p-1">
+                                            <button class="btn btn-sm btn-block btn-outline-success add-item-ajax w-100"
+                                                    data-item-cardapio-id="{{ item_cardapio.pk }}"
+                                                    data-comanda-pk="{{ comanda.pk }}">
+                                                <i class="fas fa-cart-plus"></i> Add
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+    <script>
+        // Função utilitária para obter o token CSRF (Necessário para requisições POST seguras no Django)
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.startsWith(name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
+
+        // =======================================================================
+        // 1. FUNÇÃO PRINCIPAL PARA RECARREGAR A LISTA DE ITENS E TOTAIS (AJAX)
+        // =======================================================================
+        function refreshComandaDetails() {
+            // Usa o primeiro botão de cardápio para pegar o PK (funciona se houver itens)
+            const comandaPkElement = document.querySelector('.add-item-ajax');
+            // Se não houver itens no cardápio, pega do link de fechar comanda
+            const comandaPk = comandaPkElement ? comandaPkElement.dataset.comandaPk : '{{ comanda.pk }}';
+
+            // Constrói a URL para a view detalhe_comanda
+            const url = `{% url 'vendas:detalhe_comanda' pk=0 %}`.replace('/0/', `/${comandaPk}/`);
+
+            // Faz uma requisição GET para pegar a versão ATUALIZADA do HTML da comanda
+            fetch(url, {
+                method: 'GET'
+            })
+            .then(response => response.text())
+            .then(html => {
+                // Cria um elemento temporário para carregar o HTML completo
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+
+                // 1. Atualiza a tabela de itens
+                const newBody = tempDiv.querySelector('#itens-comanda-body');
+                document.getElementById('itens-comanda-body').innerHTML = newBody.innerHTML;
+
+                // 2. Atualiza o total
+                const newTotal = tempDiv.querySelector('#total-geral').innerText;
+                document.getElementById('total-geral').innerText = newTotal;
+            })
+            .catch(error => {
+                console.error('Erro ao atualizar a comanda:', error);
+                // Exemplo de alerta simples, pode ser melhorado com toasts
+                alert('Erro ao carregar detalhes atualizados. Tente recarregar a página.');
+            });
+        }
+
+        // =======================================================================
+        // 2. FUNÇÃO PARA ADICIONAR ITEM VIA AJAX (Ao clicar no cardápio)
+        // =======================================================================
+        document.querySelectorAll('.add-item-ajax').forEach(button => {
+            button.addEventListener('click', function() {
+                const comandaPk = this.dataset.comandaPk;
+                const itemId = this.dataset.itemCardapioId;
+                // Constrói a URL dinamicamente usando a tag url do Django
+                const url = `{% url 'vendas:adicionar_item' comanda_pk=0 %}`.replace('/0/', `/${comandaPk}/`);
+                
+                // Dados a serem enviados para a view (sempre 1 unidade no clique padrão)
+                const data = {
+                    item_id: itemId,
+                    quantidade: 1 
+                };
+
+                this.disabled = true; // Desativa o botão para feedback visual
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    this.disabled = false; // Reabilita o botão
+                    if (data.status === 'success') {
+                        // Recarrega os dados do pedido na tela
+                        refreshComandaDetails(); 
+                    } else {
+                        alert('Falha ao adicionar item: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    this.disabled = false;
+                    console.error('Erro na requisição AJAX:', error);
+                    alert('Erro de comunicação. Verifique o console.');
+                });
+            });
+        });
+    </script>
+{% endblock extra_js %}

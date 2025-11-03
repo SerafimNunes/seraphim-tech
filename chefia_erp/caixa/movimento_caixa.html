@@ -1,0 +1,103 @@
+<!-- Template para Registrar Sangria ou Suprimento Avulso -->
+<!DOCTYPE html>
+<html lang="pt-br" class="h-full bg-gray-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movimento Avulso</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .input-field {
+            @apply mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-lg;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-50 flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md bg-white shadow-2xl rounded-xl p-8 border border-gray-200">
+        
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-amber-600">
+                Movimento Avulso
+            </h1>
+            <p class="text-gray-500 mt-2">Sangria (saída) ou Suprimento (entrada) de caixa.</p>
+        </div>
+
+        {% if messages %}
+            <div class="mb-4 space-y-2">
+                {% for message in messages %}
+                    <div class="p-3 rounded-lg text-sm {% if message.tags == 'error' %}bg-red-100 text-red-800 font-medium{% elif message.tags == 'success' %}bg-green-100 text-green-800{% else %}bg-blue-100 text-blue-800{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="space-y-6">
+                
+                <!-- Campo Tipo (Suprimento/Sangria) -->
+                <div>
+                    <label for="id_tipo" class="block text-sm font-medium text-gray-700">
+                        {{ form.tipo.label }}
+                    </label>
+                    {{ form.tipo|add_class:"input-field" }}
+                    {% for error in form.tipo.errors %}
+                        <p class="mt-1 text-sm text-red-600">{{ error }}</p>
+                    {% endfor %}
+                </div>
+
+                <!-- Campo Valor -->
+                <div>
+                    <label for="id_valor" class="block text-sm font-medium text-gray-700">
+                        {{ form.valor.label }}
+                    </label>
+                    {{ form.valor|add_class:"input-field text-2xl font-bold text-gray-800 text-right" }}
+                    {% for error in form.valor.errors %}
+                        <p class="mt-1 text-sm text-red-600">{{ error }}</p>
+                    {% endfor %}
+                </div>
+                
+                <!-- Campo Descrição -->
+                <div>
+                    <label for="id_descricao" class="block text-sm font-medium text-gray-700">
+                        {{ form.descricao.label }}
+                    </label>
+                    {{ form.descricao|add_class:"input-field" }}
+                    {% for error in form.descricao.errors %}
+                        <p class="mt-1 text-sm text-red-600">{{ error }}</p>
+                    {% endfor %}
+                    <p class="mt-1 text-xs text-gray-500">Ex: Troca de notas por moedas, pagamento de lanche.</p>
+                </div>
+
+            </div>
+
+            <!-- Botões de Ação -->
+            <div class="flex justify-between space-x-4 pt-6 mt-6 border-t">
+                <a href="{% url 'caixa:pdv_home' %}" class="w-1/3 text-center py-3 border border-gray-300 text-sm font-medium rounded-lg shadow-sm text-gray-700 bg-white hover:bg-gray-100 transition duration-150">
+                    Voltar
+                </a>
+                <button type="submit" class="w-2/3 flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-lg font-medium text-white bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition duration-150">
+                    Registrar Movimento
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Script para adicionar a classe 'input-field' automaticamente -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const fields = document.querySelectorAll('select, input[type="number"], input[type="text"]');
+            fields.forEach(field => {
+                if (!field.classList.contains('input-field')) {
+                    field.classList.add('input-field');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

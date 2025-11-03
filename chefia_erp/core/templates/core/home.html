@@ -1,0 +1,248 @@
+{% extends 'base.html' %} 
+{% load static %}
+
+<!--
+ESTE ARQUIVO FOI CRIADO PARA RESOLVER OS ERROS DE TEMPLATE E ADICIONAR O RECURSO GEMINI.
+O novo recurso usa a API do Gemini para gerar ideias de receitas baseadas em um ingrediente/tema.
+-->
+
+{% block title %}Dashboard Principal do Sistema{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row">
+        <!-- Coluna Esquerda: Links Rápidos do ERP -->
+        <div class="col-lg-6 mb-4">
+            <div class="p-4 bg-light rounded-3 shadow-lg border-0 h-100" style="background-color: #f8f9fa;">
+                <h1 class="display-6 text-primary font-weight-bold mb-4">Chefia ERP - Acesso Rápido</h1>
+                <p class="lead text-secondary">
+                    Gerencie estoque, unidades e cardápio de forma eficiente.
+                </p>
+                <hr class="my-4" style="border-top: 2px solid #e9ecef;">
+                
+                <p class="text-muted">Ferramentas administrativas:</p>
+                
+                <div class="d-grid gap-3">
+                    <!-- Link para Unidades de Medida -->
+                    <a href="{% url 'admin:core_unidademedida_changelist' %}" class="btn btn-outline-primary py-3 rounded-lg shadow-sm">
+                        <i class="fas fa-ruler-combined me-2"></i> Gerenciar Unidades
+                    </a>
+                    
+                    <!-- Link para Produtos em Estoque -->
+                    <a href="{% url 'admin:estoque_produto_changelist' %}" class="btn btn-outline-primary py-3 rounded-lg shadow-sm">
+                        <i class="fas fa-box-open me-2"></i> Estoque de Produtos
+                    </a>
+                    
+                    <!-- Link para Itens do Cardápio -->
+                    <a href="{% url 'admin:menu_itemcardapio_changelist' %}" class="btn btn-outline-primary py-3 rounded-lg shadow-sm">
+                        <i class="fas fa-utensils me-2"></i> Itens do Cardápio
+                    </a>
+                </div>
+                
+                <a href="{% url 'admin:index' %}" class="btn btn-dark btn-sm mt-4 shadow-sm w-100">
+                    <i class="fas fa-tachometer-alt me-2"></i> Acesso Completo ao Painel Admin
+                </a>
+            </div>
+        </div>
+
+        <!-- Coluna Direita: Recurso Gemini - Inovação de Cardápio -->
+        <div class="col-lg-6 mb-4">
+            <div class="p-4 bg-white rounded-3 shadow-lg border-2 border-danger h-100">
+                <h2 class="h3 text-danger mb-4"><i class="fas fa-hat-chef me-2"></i> Inovação de Cardápio ✨</h2>
+                <p class="text-secondary">Use a inteligência artificial para gerar ideias de receitas inovadoras. Digite um ingrediente principal ou um tema (ex: "Peixe do Rio com toque Tailandês").</p>
+                
+                <div class="input-group mb-3">
+                    <input type="text" id="recipePrompt" class="form-control form-control-lg" placeholder="Ingrediente ou Tema (ex: Abóbora Cabotiá)" aria-label="Ingrediente ou Tema">
+                    <button class="btn btn-danger btn-lg shadow-sm" type="button" id="generateRecipeBtn">
+                        Gerar Ideia ✨
+                    </button>
+                </div>
+
+                <div id="loadingIndicator" class="text-center my-4 d-none">
+                    <div class="spinner-border text-danger" role="status">
+                        <span class="visually-hidden">Gerando...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Consultando o Chef IA...</p>
+                </div>
+
+                <!-- Área de Resultados -->
+                <div id="recipeResult" class="mt-4 p-3 bg-light rounded-lg border d-none">
+                    <h5 class="text-dark"><i class="fas fa-lightbulb me-2"></i> Receita Sugerida:</h5>
+                    <div id="recipeDetails"></div>
+                </div>
+
+                <!-- Área para Mensagens (Erros/Feedback) -->
+                <div id="messageBox" class="mt-3 p-2 d-none rounded text-center"></div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Configurações e Funções da API do Gemini
+    const generateRecipeBtn = document.getElementById('generateRecipeBtn');
+    const recipePromptInput = document.getElementById('recipePrompt');
+    const recipeResultDiv = document.getElementById('recipeResult');
+    const recipeDetailsDiv = document.getElementById('recipeDetails');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const messageBox = document.getElementById('messageBox');
+    
+    // Configurações da API
+    const apiKey = ""; 
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+    /**
+     * Exibe uma mensagem de feedback (sucesso ou erro) ao usuário.
+     * @param {string} text O texto da mensagem.
+     * @param {string} type O tipo de mensagem ('success' ou 'error').
+     */
+    function displayMessage(text, type) {
+        messageBox.textContent = text;
+        messageBox.classList.remove('d-none', 'alert-success', 'alert-danger');
+        if (type === 'success') {
+            messageBox.classList.add('alert-success');
+        } else {
+            messageBox.classList.add('alert-danger');
+        }
+        setTimeout(() => {
+            messageBox.classList.add('d-none');
+        }, 5000);
+    }
+    
+    /**
+     * Função para renderizar os detalhes da receita.
+     * @param {object} data Dados estruturados da receita.
+     */
+    function renderRecipe(data) {
+        let ingredientsHtml = data.ingredients.map(ing => `<li>${ing}</li>`).join('');
+
+        recipeDetailsDiv.innerHTML = `
+            <h4 class="text-danger">${data.recipeName}</h4>
+            <p class="text-muted"><strong>Tema:</strong> ${data.theme}</p>
+            <p><strong>Ingredientes Principais:</strong></p>
+            <ul class="list-unstyled ps-3">${ingredientsHtml}</ul>
+            <p><strong>Sumário de Preparo:</strong></p>
+            <p>${data.stepsSummary}</p>
+        `;
+        recipeResultDiv.classList.remove('d-none');
+    }
+
+    /**
+     * Tenta fazer a chamada da API com retentativas (exponential backoff).
+     * @param {object} payload Payload da requisição.
+     * @param {number} retryCount Número da tentativa atual.
+     * @returns {Promise<Response>}
+     */
+    async function fetchWithRetry(payload, retryCount = 0) {
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.status === 429 && retryCount < 3) { // 429 Too Many Requests
+                const delay = Math.pow(2, retryCount) * 1000;
+                // console.log(`Rate limit atingido. Tentando novamente em ${delay / 1000}s...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return fetchWithRetry(payload, retryCount + 1);
+            }
+            
+            if (!response.ok) {
+                const errorBody = await response.json();
+                throw new Error(`Erro na API: ${response.statusText} - ${JSON.stringify(errorBody)}`);
+            }
+            
+            return response;
+
+        } catch (error) {
+            if (retryCount >= 3) {
+                 throw new Error(`Falha na comunicação com o Gemini após ${retryCount + 1} tentativas: ${error.message}`);
+            }
+            // console.log(`Erro temporário: ${error.message}. Tentando novamente...`);
+            const delay = Math.pow(2, retryCount) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(payload, retryCount + 1);
+        }
+    }
+
+
+    /**
+     * Gera uma nova ideia de receita usando a API do Gemini.
+     */
+    async function generateRecipeIdea() {
+        const userPrompt = recipePromptInput.value.trim();
+        if (!userPrompt) {
+            displayMessage("Por favor, digite um ingrediente ou tema para começar.", 'error');
+            return;
+        }
+
+        // Limpar e mostrar loading
+        recipeResultDiv.classList.add('d-none');
+        loadingIndicator.classList.remove('d-none');
+        generateRecipeBtn.disabled = true;
+
+        const systemPrompt = "Você é um Chef Consultor de Menu de classe mundial. Sua tarefa é criar uma receita inovadora e profissionalmente estruturada baseada no tema ou ingrediente fornecido pelo usuário. O foco deve ser em culinária de restaurante.";
+        
+        const payload = {
+            contents: [{ parts: [{ text: `Crie uma receita inovadora de alto nível usando o seguinte tema ou ingrediente: "${userPrompt}"` }] }],
+            systemInstruction: {
+                parts: [{ text: systemPrompt }]
+            },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        "recipeName": { "type": "STRING", "description": "Nome criativo e atraente da receita." },
+                        "theme": { "type": "STRING", "description": "O tema ou conceito principal da receita (ex: Conforto, Regional, Fusão)." },
+                        "ingredients": {
+                            "type": "ARRAY",
+                            "description": "Lista dos ingredientes principais necessários.",
+                            "items": { "type": "STRING" }
+                        },
+                        "stepsSummary": { "type": "STRING", "description": "Um resumo conciso de como preparar a receita, focado nas etapas principais." }
+                    },
+                    "propertyOrdering": ["recipeName", "theme", "ingredients", "stepsSummary"]
+                }
+            }
+        };
+
+        try {
+            const response = await fetchWithRetry(payload);
+            const result = await response.json();
+            
+            const candidate = result.candidates?.[0];
+
+            if (candidate && candidate.content?.parts?.[0]?.text) {
+                const jsonText = candidate.content.parts[0].text;
+                const recipeData = JSON.parse(jsonText);
+                
+                renderRecipe(recipeData);
+                displayMessage("Nova ideia de receita gerada com sucesso!", 'success');
+            } else {
+                throw new Error("Resposta da IA incompleta ou inválida.");
+            }
+
+        } catch (error) {
+            // console.error("Erro LLM:", error);
+            displayMessage(`Erro ao gerar a receita: ${error.message}`, 'error');
+        } finally {
+            loadingIndicator.classList.add('d-none');
+            generateRecipeBtn.disabled = false;
+        }
+    }
+
+    // Adiciona o listener ao botão
+    generateRecipeBtn.addEventListener('click', generateRecipeIdea);
+    
+    // Permite gerar com Enter no input
+    recipePromptInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            generateRecipeIdea();
+        }
+    });
+
+</script>
+{% endblock %}

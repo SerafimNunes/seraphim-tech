@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% load crispy_forms_tags %}
+
+{% block title %}{% translate "Abrir Sessão de Caixa" %}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto p-4 max-w-lg">
+    <div class="bg-white p-6 rounded-lg shadow-xl border border-blue-200">
+        
+        <h1 class="text-2xl font-bold mb-4 text-gray-800">
+            <i class="fas fa-cash-register mr-2 text-blue-500"></i>
+            {% translate "Abrir Novo Caixa" %}
+        </h1>
+        
+        <p class="mb-6 text-gray-600">
+            {% translate "Para iniciar as operações de venda (PDV), você deve abrir uma nova sessão de caixa, informando qual caixa será utilizado e seu valor inicial (fundo de troco)." %}
+        </p>
+
+        <form method="post" action="{% url 'caixa:pdv_home' %}">
+            {% csrf_token %}
+            
+            <div class="space-y-4">
+                {{ form|crispy }}
+            </div>
+
+            <button type="submit" class="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-200">
+                <i class="fas fa-play-circle mr-2"></i>
+                {% translate "Abrir Sessão e Iniciar PDV" %}
+            </button>
+        </form>
+
+        <p class="mt-6 text-sm text-center text-gray-500">
+            <i class="fas fa-lock mr-1"></i>
+            {% translate "A sessão será vinculada ao seu usuário até o fechamento." %}
+        </p>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,85 @@
+<!-- Template para Iniciar uma nova Sessão de Caixa (Atualizado para ModelForm) -->
+<!DOCTYPE html>
+<html lang="pt-br" class="h-full bg-gray-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abrir Sessão de Caixa</title>
+    <!-- Inclui Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        /* Garante que o select/input number receba o estilo */
+        .form-field {
+            @apply mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-lg;
+        }
+        select.form-field {
+            @apply pr-10; /* Espaço para a seta do select */
+        }
+        input[type="number"].form-field {
+            @apply text-2xl font-bold text-gray-800 text-right;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-50 flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md bg-white shadow-2xl rounded-xl p-8 border border-gray-200">
+        
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-indigo-700">
+                Abertura de Caixa
+            </h1>
+            <p class="text-gray-500 mt-2">Informe o saldo inicial e o caixa que você irá operar.</p>
+        </div>
+
+        {% if messages %}
+            <div class="mb-4 space-y-2">
+                {% for message in messages %}
+                    <div class="p-3 rounded-lg text-sm {% if message.tags == 'error' %}bg-red-100 text-red-800 font-medium{% elif message.tags == 'success' %}bg-green-100 text-green-800{% else %}bg-blue-100 text-blue-800{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="space-y-6">
+                {% for field in form %}
+                    <div>
+                        <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                            {{ field.label }}
+                        </label>
+                        {{ field|add_class:"form-field" }}
+                        {% if field.help_text %}
+                            <p class="mt-1 text-xs text-gray-500">{{ field.help_text }}</p>
+                        {% endif %}
+                        {% for error in field.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            <button type="submit" class="mt-8 w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-lg font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150">
+                Abrir Caixa e Iniciar PDV
+            </button>
+        </form>
+    </div>
+
+    <!-- Script para adicionar a classe 'form-field' automaticamente, pois o Django remove as classes default em NumberInput -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Se o campo não tiver a classe, adiciona
+            const fields = document.querySelectorAll('select, input[type="number"]');
+            fields.forEach(field => {
+                if (!field.classList.contains('form-field')) {
+                    field.classList.add('form-field');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

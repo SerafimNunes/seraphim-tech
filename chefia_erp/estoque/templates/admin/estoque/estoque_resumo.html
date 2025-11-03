@@ -1,0 +1,128 @@
+{% extends 'admin/base_site.html' %}
+{% load static %}
+{% load i18n %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        .card-header {
+            font-size: 1.2em;
+            font-weight: bold;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #4CAF50; /* Verde para valores positivos */
+        }
+        .metric-label {
+            color: #777;
+            font-size: 0.9em;
+        }
+        .alert-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .alert-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px dashed #eee;
+            font-size: 0.9em;
+        }
+        .alert-item:last-child {
+            border-bottom: none;
+        }
+        .low-stock {
+            color: #FF9800; /* Laranja para alertas */
+            font-weight: bold;
+        }
+        .high-value {
+            color: #2196F3; /* Azul para alto valor */
+            font-weight: bold;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <!-- Título da Página -->
+    <h1>{{ title }}</h1>
+
+    <!-- Container principal do Dashboard -->
+    <div class="dashboard-container">
+        <!-- Card 1: Valor Total em Estoque (Custo) -->
+        <div class="card">
+            <div class="card-header">Valor Total em Estoque (Custo CMP)</div>
+            <div class="metric-value">{{ valor_total_estoque }}</div>
+            <div class="metric-label">Valor total dos produtos baseado no Custo Médio Ponderado.</div>
+        </div>
+
+        <!-- Card 2: Valor de Venda Potencial -->
+        <div class="card">
+            <div class="card-header">Valor de Venda Potencial</div>
+            <div class="metric-value" style="color: #00BCD4;">{{ valor_venda_potencial }}</div>
+            <div class="metric-label">Receita potencial se todos os itens vendáveis fossem vendidos ao preço de venda.</div>
+        </div>
+
+        <!-- Card 3: Produtos em Alerta de Estoque Mínimo -->
+        <div class="card">
+            <div class="card-header">Produtos Abaixo do Estoque Mínimo</div>
+            <div class="metric-value low-stock">{{ num_produtos_alerta }}</div>
+            <div class="metric-label">Itens que precisam ser reabastecidos urgentemente.</div>
+        </div>
+
+        <!-- Card 4: Alerta de Baixo Estoque (Lista) -->
+        <div class="card">
+            <div class="card-header low-stock">Detalhe: Itens Críticos (Top 10)</div>
+            <ul class="alert-list">
+                {% for p in produtos_em_alerta %}
+                    <li class="alert-item">
+                        <span>{{ p.nome }}</span>
+                        <span class="low-stock">{{ p.quantidade_atual }} {{ p.unidade }}</span>
+                    </li>
+                {% empty %}
+                    <li class="alert-item">Nenhum produto abaixo do estoque mínimo.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <!-- Card 5: Itens de Maior Valor Total (Lista) -->
+        <div class="card">
+            <div class="card-header high-value">Itens de Maior Valor em Estoque (Top 5)</div>
+            <ul class="alert-list">
+                {% for p in itens_mais_caros %}
+                    <li class="alert-item">
+                        <!-- Exibe Nome (Custo Médio/Unidade) -->
+                        <span>{{ p.nome }} ({{ p.custo_medio }}/{{ p.unidade }})</span>
+                        <!-- Exibe Valor Total em Estoque -->
+                        <span class="high-value">{{ p.valor_total }}</span>
+                    </li>
+                {% empty %}
+                    <li class="alert-item">Sem dados de valor de estoque disponíveis.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Link para voltar à listagem completa de produtos -->
+    <p style="margin-top: 20px;">
+        <a href="{% url 'admin:estoque_produto_changelist' %}" class="button">Ver Listagem Completa de Produtos</a>
+    </p>
+
+{% endblock %}
