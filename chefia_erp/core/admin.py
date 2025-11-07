@@ -1,23 +1,50 @@
-# core/admin.py (VERSÃO FINAL PARA A TAREFA #4)
+# ====================================================================
+# ARQUIVO: chefia_erp/core/admin.py (COMPLETO E CORRIGIDO)
+# Todos os modelos base de lookup/apoio são registrados aqui.
+# ====================================================================
 
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin 
-from django.contrib.auth.models import User      
-
-# Importa todos os modelos do core, incluindo o NOVO ConfiguracaoGeral
-from .models import UnidadeMedida, Usuario, Fornecedor, Cliente, ConfiguracaoGeral
+# Importamos o Admin padrão e o modelo Group para customização da UX
+from django.contrib.auth.admin import UserAdmin, GroupAdmin as DefaultGroupAdmin 
+from django.contrib.auth.models import User, Group
+# Importa todos os modelos do core, incluindo Categoria (AGORA INCLUÍDA)
+from .models import (
+    UnidadeMedida, Usuario, Fornecedor, Cliente, ConfiguracaoGeral,
+    Categoria  # 🚨 ADICIONADO: Necessário para o autocomplete em outros apps
+) 
 
 # --------------------------------------------------------------------
-# 1. DESREGISTRAR O USUÁRIO PADRÃO
+# 1. DESREGISTRAR MODELOS PADRÃO (USER E GROUP)
 # --------------------------------------------------------------------
 # Isso deve ser feito para evitar conflito com o AUTH_USER_MODEL
 try:
     admin.site.unregister(User)
 except admin.sites.NotRegistered:
-    pass 
+    pass
 
 # --------------------------------------------------------------------
-# 2. USUÁRIO CUSTOMIZADO 
+# 1.1. CORREÇÃO UX: GRUPOS (RESOLVENDO O PROBLEMA DO FILTRO REPETITIVO)
+# --------------------------------------------------------------------
+
+class CustomGroupAdmin(DefaultGroupAdmin):
+    """
+    Melhora a UX na edição de grupos, usando filter_horizontal para permissões.
+    Isso corrige o problema das opções se repetindo, tornando a lista mais amigável.
+    """
+    # Esta linha é o fix: usa uma interface de caixas duplas
+    filter_horizontal = ('permissions',)
+
+# Desregistra o Admin padrão do Django para o modelo Group
+try:
+    admin.site.unregister(Group)
+except admin.sites.NotRegistered:
+    pass
+
+# Registra a versão customizada do Group Admin
+admin.site.register(Group, CustomGroupAdmin)
+    
+# --------------------------------------------------------------------
+# 2. USUÁRIO CUSTOMIZADO
 # --------------------------------------------------------------------
 
 @admin.register(Usuario)
@@ -29,8 +56,17 @@ class UsuarioAdmin(UserAdmin):
     search_fields = UserAdmin.search_fields + ('cpf', 'telefone',)
     
 # --------------------------------------------------------------------
-# 3. UNIDADE DE MEDIDA 
+# 3. MODELOS DE APOIO (Categoria e Unidade de Medida)
 # --------------------------------------------------------------------
+
+# 🚨 NOVO ADMIN: Essencial para que ProdutoAdmin (em estoque) possa usar 'categoria' em autocomplete_fields
+@admin.register(Categoria)
+class CategoriaAdmin(admin.ModelAdmin):
+    list_display = ('nome', 'ativo')
+    search_fields = ('nome',)
+    list_filter = ('ativo',)
+    ordering = ('nome',)
+
 
 @admin.register(UnidadeMedida)
 class UnidadeMedidaAdmin(admin.ModelAdmin):
@@ -39,23 +75,25 @@ class UnidadeMedidaAdmin(admin.ModelAdmin):
     ordering = ('nome',)
 
 # --------------------------------------------------------------------
-# 4. MODELOS BASE (Fornecedor e Cliente)
+# 4. MODELOS BASE (Fornecedor e Cliente - AGORA REGISTRADOS)
 # --------------------------------------------------------------------
 
-'''@admin.register(Fornecedor)
+@admin.register(Fornecedor)
 class FornecedorAdmin(admin.ModelAdmin):
+    # Descomentado e registrado
     list_display = ('nome', 'cnpj', 'telefone', 'email', 'ativo')
     search_fields = ('nome', 'cnpj')
     list_filter = ('ativo',)
-   ''' 
-'''@admin.register(Cliente)
+    
+@admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
+    # Descomentado e registrado
     list_display = ('nome', 'cpf_cnpj', 'telefone', 'data_cadastro')
     search_fields = ('nome', 'cpf_cnpj')
     list_filter = ('data_cadastro',)
-'''
+
 # --------------------------------------------------------------------
-# 5. CONFIGURAÇÃO GERAL (SINGLETON - TAREFA #4)
+# 5. CONFIGURAÇÃO GERAL (SINGLETON)
 # --------------------------------------------------------------------
 
 @admin.register(ConfiguracaoGeral)

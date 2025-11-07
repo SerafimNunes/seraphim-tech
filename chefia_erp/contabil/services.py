@@ -1,83 +1,84 @@
-# contabil/services.py
+# =======================================================================
+# ARQUIVO: contabil/services.py (COMPLETO E CORRIGIDO R7)
+# =======================================================================
+import logging
 from django.db import transaction
 from django.utils import timezone
-from .models import PlanoConta, LancamentoContabil
 from decimal import Decimal
+from django.contrib.auth import get_user_model
+from typing import Optional
 
-# Função utilitária para buscar o usuário (pode ser ajustada)
-def get_current_user_or_system(user=None):
-    """Retorna o usuário se estiver logado, ou um usuário 'SYSTEM' se for um sinal/operação interna."""
-    # Aqui você deve implementar a lógica para buscar um usuário padrão
-    # (ex: User.objects.get(username='system')) ou retornar o usuário logado.
-    # Por agora, retornaremos None, mas o campo usuario_criacao aceita null.
+# Importações dos modelos contábeis (incluindo o novo LoteContabil)
+from .models import PlanoConta, LoteContabil, LancamentoContabil, CentroCusto 
+
+User = get_user_model()
+logger = logging.getLogger(__name__)
+
+# Função utilitária para buscar o usuário
+def get_current_user_or_system(user: Optional[User]) -> Optional[User]:
+    """Retorna o usuário se fornecido, ou None se for um signal/operação interna."""
     return user
 
 
 @transaction.atomic
 def criar_lancamento_contabil(
-    historico_transacao: str, 
-    valor: Decimal, 
     codigo_debito: str, 
     codigo_credito: str, 
-    centro_custo=None, 
-    usuario=None, 
-    **kwargs
+    valor: Decimal, 
+    descricao_lancamento: str, # NOVO: Detalhe da linha (Débito/Crédito)
+    historico_transacao: str, # NOVO: Descrição do LOTE (Cabeçalho)
+    usuario_criacao: Optional[User] = None, # OBRIGATÓRIO (para o LoteContabil)
+    centro_custo: Optional[CentroCusto] = None, 
+    **kwargs # Para rastreabilidade (pedido_compra, venda, movimento_caixa)
 ):
     """
-    Cria um par de lançamentos (Débito e Crédito) para garantir a partida dobrada.
-
-    Argumentos necessários:
-    - historico_transacao (str): Descrição do evento (Ex: Venda #123).
-    - valor (Decimal): O valor monetário do lançamento.
-    - codigo_debito (str): Código do PlanoConta a ser debitado.
-    - codigo_credito (str): Código do PlanoConta a ser creditado.
-
-    Kwargs Opcionais (para rastreabilidade):
-    - venda (vendas.Venda): Instância da Venda.
-    - pedido_compra (compras.PedidoCompra): Instância do PedidoCompra.
-    - *Adicionar outros FKs de rastreabilidade aqui.*
+    Cria uma transação de Partida Dobrada (Débito + Crédito) dentro de um Lote Contábil.
     """
+    
     if valor <= Decimal('0'):
-        # Evita lançamentos de valor zero ou negativo, que podem causar inconsistência
         raise ValueError("O valor do lançamento contábil deve ser positivo.")
         
     try:
-        # 1. Busca as contas (falha se não existirem no PlanoContas)
+        # 1. Busca das Contas
         conta_debito = PlanoConta.objects.get(codigo=codigo_debito)
         conta_credito = PlanoConta.objects.get(codigo=codigo_credito)
+        usuario_origem = get_current_user_or_system(usuario_criacao) # Usa o novo argumento
         
     except PlanoConta.DoesNotExist as e:
-        # Erro Crítico: A conta contábil obrigatória não foi cadastrada.
+        logger.error(f"ERRO DE INTEGRIDADE: Código contábil {codigo_debito} ou {codigo_credito} não existe no Plano de Contas. Detalhes: {e}")
         raise PlanoConta.DoesNotExist(
             f"ERRO DE INTEGRIDADE: Código contábil {codigo_debito} ou {codigo_credito} não existe no Plano de Contas. Detalhes: {e}"
-        )
+        ) from e
+        
+    # 2. Criação do LOTE (Cabeçalho da Transação)
+    # Todos os campos de rastreabilidade (pedido_compra, venda, etc.) são passados via **kwargs
+    lote = LoteContabil.objects.create(
+        historico_transacao=historico_transacao,
+        valor_total=valor,
+        usuario_criacao=usuario_origem,
+        **kwargs # Passa pedido_compra, venda, movimento_caixa, etc.
+    )
 
-    # 2. Define o usuário de criação
-    usuario_origem = get_current_user_or_system(usuario)
-    
-    # 3. Cria o Débito (Entrada na conta DEVEDORA)
+    # 3. Criação do Lançamento de DÉBITO (Linha 1)
     LancamentoContabil.objects.create(
+        lote_contabil=lote, # Link para o Lote (Cabeçalho)
         data_lancamento=timezone.now(),
         valor=valor,
         tipo_movimento=LancamentoContabil.TipoMovimento.DEBITO,
         plano_conta=conta_debito,
         centro_custo=centro_custo,
-        descricao=f"D: {historico_transacao}",
-        usuario_criacao=usuario_origem,
-        **kwargs # Passa Venda, PedidoCompra, etc.
+        descricao=descricao_lancamento, # Usa o novo campo 'descricao'
     )
 
-    # 4. Cria o Crédito (Entrada na conta CREDORA)
+    # 4. Criação do Lançamento de CRÉDITO (Linha 2)
     LancamentoContabil.objects.create(
+        lote_contabil=lote, # Link para o Lote (Cabeçalho)
         data_lancamento=timezone.now(),
         valor=valor,
         tipo_movimento=LancamentoContabil.TipoMovimento.CREDITO,
         plano_conta=conta_credito,
         centro_custo=centro_custo,
-        descricao=f"C: {historico_transacao}",
-        usuario_criacao=usuario_origem,
-        **kwargs # Passa Venda, PedidoCompra, etc.
+        descricao=descricao_lancamento, # Usa o novo campo 'descricao'
     )
-    
-    # O retorno pode ser ajustado, mas True indica sucesso
-    return True
+
+    return lote

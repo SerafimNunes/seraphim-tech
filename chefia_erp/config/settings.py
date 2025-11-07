@@ -1,3 +1,4 @@
+#config/settings.py
 """
 Django settings for config project.
 """
@@ -16,8 +17,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ==============================================================================
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-muda-essa-chave-na-producao')
 DEBUG = config('DEBUG', default=True, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost,testserver').split(',')
-CSRF_TRUSTED_ORIGINS = ['http://localhost', 'http://127.0.0.1']
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost,testserver,192.168.1.17,0.0.0.0').split(',')
+CSRF_TRUSTED_ORIGINS = ['http://localhost', 'http://127.0.0.1', 'http://192.168.1.17:8000']
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DE APLICATIVOS (APPS)
@@ -36,11 +37,15 @@ DJANGO_APPS = [
 # Apps de terceiros (jazzmin deve vir primeiro)
 THIRD_PARTY_APPS = [
     'jazzmin',
-    'simple_history', # <-- Adicionado: Necessário para a Auditoria nos Models de Vendas
+    'simple_history', # <-- Manter para Auditoria
     'rest_framework', # <-- NOVO: Adicionado o Django REST Framework para APIs
     'django_extensions', # <-- adicionado
     'crispy_forms',
     'crispy_bootstrap5',
+    
+    # --- R3: ADIÇÃO CELERY ---
+    'django_celery_results', # Necessário para armazenar o status das tasks no DB (Usado pelo CELERY_RESULT_BACKEND)
+    # --- FIM R3: ADIÇÃO CELERY ---
 ]
 
 # Nossos Apps customizados (Todos ativados e ordenados)
@@ -55,10 +60,12 @@ LOCAL_APPS = [
     'compras.apps.ComprasConfig',
     'producao.apps.ProducaoConfig',
     'caixa.apps.CaixaConfig',
+    'financeiro.apps.FinanceiroConfig',
 
     # Próximos Apps (Já inclusos para evitar erros futuros)
     'contabil.apps.ContabilConfig',
 ]
+
 # Configuração para Django Crispy Forms
 # Define o template pack que será usado para renderizar os formulários
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
@@ -98,7 +105,7 @@ DATABASES = {
         'USER': config('DB_USER', default='serafim_user'),
         'PASSWORD': config('DB_PASSWORD', default='2327512-0'), # Removido valor real (mude no .env)
         'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5433'),
+        'PORT': config('DB_PORT', default='5432'),
     }
 }
 
@@ -136,7 +143,7 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = 'pt-br'
 TIME_ZONE = 'America/Sao_Paulo'
 USE_I18N = True
-USE_TZ = True
+USE_TZ = True # Crucial para o Celery usar o timezone correto
 
 # ==============================================================================
 # 7. ARQUIVOS ESTÁTICOS
@@ -217,6 +224,29 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
 }
-# 10. AUTHENTICATION (Usuário Customizado)
+# 12. AUTHENTICATION (Usuário Customizado)
 # ==============================================================================
 AUTH_USER_MODEL = 'core.Usuario'
+
+# ==============================================================================
+# 13. CELERY CONFIGURATION (ASSINCRONISMO R3)
+# ==============================================================================
+
+# 🚨 CONFIGURAÇÃO CELERY PARA FATURAMENTO ASSÍNCRONO (R3)
+# --------------------------------------------------------------------------
+# Configuração do Broker (RabbitMQ ou Redis)
+# RECOMENDAÇÃO: Use Redis
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  # Altere se o Redis estiver em outro host/porta
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE # Reutiliza o TIME_ZONE ('America/Sao_Paulo') definido acima
+# Mantido como False para rastrear o status de processamento da Venda
+CELERY_TASK_IGNORE_RESULT = False 
+
+# ==============================================================================
+# 14. OUTRAS CONFIGURAÇÕES (Placeholder)
+# ==============================================================================
+
+# ... (Qualquer outra configuração específica que você tenha)

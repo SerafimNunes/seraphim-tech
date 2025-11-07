@@ -1,4 +1,4 @@
-# ARQUIVO: vendas/admin.py (CORRIGIDO E OTIMIZADO)
+# ARQUIVO: vendas/admin.py (CORRIGIDO E OTIMIZADO - Caracteres limpos)
 
 from django.contrib import admin
 from django.utils import timezone
@@ -16,11 +16,12 @@ from .models import Cliente, Mesa, Cupom, Venda, ItemVenda, MetodoPagamento, Com
 # =========================================================================
 
 class ItemVendaInline(admin.TabularInline):
-    """Itens da Venda. Adicionando o CMV para visualização."""
+    """Itens da Venda. Adicionando o CMV e o nome do cliente para visualização/auditoria."""
     model = ItemVenda
     extra = 0
     can_delete = False
-    fields = ('produto', 'quantidade', 'preco_unitario', 'custo_unitario_apurado', 'subtotal_item', 'observacoes')
+    # >>> NOVO: nome_cliente_mesa adicionado para auditoria/divisão de conta <<<
+    fields = ('produto', 'quantidade', 'preco_unitario', 'nome_cliente_mesa', 'custo_unitario_apurado', 'subtotal_item', 'observacoes')
     readonly_fields = ('subtotal_item', 'custo_unitario_apurado',)
 
 class MetodoPagamentoInline(admin.TabularInline):
@@ -49,20 +50,21 @@ class ComandaItemInline(admin.TabularInline):
     # FIX: 'data_inclusao' deve estar em 'fields' para aparecer no form/inline.
     # FIX: Usando 'subtotal_display' no readonly_fields e fields
     readonly_fields = ('impresso_comanda', 'subtotal_display', 'data_inclusao') 
-    fields = ('produto', 'quantidade', 'preco_unitario', 'observacoes', 'impresso_comanda', 'subtotal_display', 'data_inclusao') 
+    # >>> NOVO: nome_cliente_mesa adicionado para que o atendente possa inserir no item <<<
+    fields = ('produto', 'quantidade', 'preco_unitario', 'nome_cliente_mesa', 'observacoes', 'impresso_comanda', 'subtotal_display', 'data_inclusao') 
 
 
 # =========================================================================
 # ADMINS REGISTROS BASE
 # =========================================================================
 
-@admin.register(Cliente)
+'''@admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
     # 'documento' é campo do model, deve funcionar agora que a confusão de importação passou
     list_display = ('nome', 'cpf_cnpj', 'telefone', 'email', 'data_cadastro')
     search_fields = ('nome', 'cpf_cnpj', 'email', 'telefone')
     list_filter = ('data_cadastro',)
-
+'''
 
 @admin.register(Mesa)
 class MesaAdmin(admin.ModelAdmin):
@@ -70,7 +72,6 @@ class MesaAdmin(admin.ModelAdmin):
     list_display = ('numero', 'capacidade', 'ativa')
     list_filter = ('ativa',)
     search_fields = ('numero',)
-
 
 @admin.register(Cupom)
 class CupomAdmin(admin.ModelAdmin):
@@ -264,5 +265,6 @@ class VendaAdmin(admin.ModelAdmin):
 
 # Registro de modelos que não precisam de Admin customizado no topo
 admin.site.register(MetodoPagamento)
-admin.site.register(ComandaItem)
-admin.site.register(ItemVenda)
+# Não é recomendado registrar os modelos que já possuem um AdminInline definido
+# admin.site.register(ComandaItem)
+# admin.site.register(ItemVenda)

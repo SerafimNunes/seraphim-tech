@@ -1,4 +1,4 @@
-# ARQUIVO: vendas/models.py (CORRIGIDO PARA O ADMIN)
+# ARQUIVO: vendas/models.py (CORRIGIDO PARA O ADMIN E NOVA FEATURE)
 from django.db import models
 from django.db.models import Sum, F, DecimalField, Q 
 from django.contrib.auth import get_user_model
@@ -50,6 +50,13 @@ class ComandaItem(models.Model):
     impresso_comanda = models.BooleanField(default=False)
     observacoes = models.TextField(blank=True)
     
+    # >>> FEATURE NOVA: Campo para Divisão de Conta/Identificação na Mesa <<<
+    nome_cliente_mesa = models.CharField(
+        max_length=100, 
+        blank=True, 
+        default='', 
+        verbose_name="Nome na Mesa"
+    )
     # *** FIX ***: Campo faltante para ComandaItemInline
     data_inclusao = models.DateTimeField(default=timezone.now) 
     
@@ -183,10 +190,18 @@ class ItemVenda(models.Model):
     preco_unitario = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Preço Unitário")
     subtotal_item = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Subtotal")
     
+    # >>> FEATURE NOVA: Campo para Divisão de Conta/Identificação na Mesa (Cópia) <<<
+    nome_cliente_mesa = models.CharField(
+        max_length=100, 
+        blank=True, 
+        default='', 
+        verbose_name="Nome na Mesa"
+    )
+    
     # Valores de Custo (para CMV)
     custo_unitario_apurado = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('0.0000'), verbose_name="Custo Unitário Apurado")
     
-    observacoes = models.TextField(blank=True, verbose_name="Observações")
+    observacoes = models.TextField(blank=True, verbose_name="Observações") 
     
     @property
     def custo_total_cmv(self):

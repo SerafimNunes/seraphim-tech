@@ -1,5 +1,4 @@
-# ARQUIVO: vendas/signals.py (REFATORADO E CORRIGIDO)
-# Implementa Lógica Financeira (CMV, Lançamentos), Baixa de Estoque, Comanda Eletrônica e Fluxo de Recebimento
+# ARQUIVO: vendas/signals.py (COMPLETO E CORRIGIDO R8/R9)
 
 import logging
 from django.db.models.signals import post_save, post_delete, pre_save
@@ -12,6 +11,11 @@ from django.core.exceptions import ValidationError
 
 # Configuração do Logger
 logger = logging.getLogger(__name__)
+
+# --- IMPORTAÇÃO DE TASK (MANTIDA PARA LÓGICA R9 FUTURA, MAS NÃO USADA AQUI) ---
+# A task processar_faturamento_venda não será mais chamada neste signal.
+# from .tasks import processar_faturamento_venda 
+# --- FIM NOVO IMPORT ---
 
 # Importação dos Modelos
 from vendas.models import ItemVenda, Venda, Comanda, ComandaItem, ImpressaoComanda, MetodoPagamento, Cupom 
@@ -35,129 +39,48 @@ CONTA_CAIXA_GERAL = '1.1.0.1.0.1'
 
 # =========================================================================
 # LÓGICA 1: APURAÇÃO DO CUSTO UNITÁRIO DE VENDA (CMV) - pre_save
+# (MANTIDA como camada de integridade/fallback)
 # =========================================================================
 
 @receiver(pre_save, sender=ItemVenda)
 def apurar_custo_na_venda(sender, instance, **kwargs):
     """
-    Define o custo_unitario_apurado do ItemVenda usando o Custo Médio Ponderado (CMP)
-    APENAS se for um novo item ou se o custo ainda for 0.
+    Define o custo_unitario_apurado do ItemVenda usando o Custo Médio Ponderado (CMP).
+    O VendaService já faz isso, mas mantemos para garantir a integridade.
     """
-    # Verifica se o custo já foi apurado
-    if instance.custo_unitario_apurado == Decimal('0.0000'):
-        if instance.produto:
-            try:
-                # Assumindo o campo custo_medio_ponderado existe em estoque.Produto
-                # O custo_medio_ponderado é a fonte de CMV
-                produto = Produto.objects.only('custo_medio_ponderado').get(pk=instance.produto.pk)
-                cmv_unitario = produto.custo_medio_ponderado or Decimal('0.0000') 
-                instance.custo_unitario_apurado = cmv_unitario
+    # Se o custo já foi apurado pelo Service, ou se não há produto, ignorar.
+    if instance.custo_unitario_apurado == Decimal('0.0000') and instance.produto:
+        try:
+            # Assumindo o campo custo_medio_ponderado existe em estoque.Produto (ou proxy)
+            produto = Produto.objects.only('custo_medio_ponderado').get(pk=instance.produto.pk)
+            cmv_unitario = produto.custo_medio_ponderado or Decimal('0.0000') 
+            instance.custo_unitario_apurado = cmv_unitario
 
-            except Produto.DoesNotExist:
-                instance.custo_unitario_apurado = Decimal('0.0000')
-                logger.warning(f"CMV: Produto ID {instance.produto.pk} não encontrado. CMV definido como 0.0000.")
+        except Produto.DoesNotExist:
+            instance.custo_unitario_apurado = Decimal('0.0000')
+            logger.warning(f"CMV: Produto ID {instance.produto.pk} não encontrado. CMV definido como 0.0000.")
 
 
 # =========================================================================
-# LÓGICA 2: FLUXO BÁSICO: RECALCULA TOTAIS DA VENDA - post_save/post_delete
+# LÓGICA 2: RECALCULA TOTAIS DA VENDA - post_save/post_delete
+# (REMOVIDA: A lógica foi movida para o VendaService para melhor performance/atomicidade)
 # =========================================================================
+# A chamada a instance.venda.recalcular_totais() deve ser feita AGORA no VendaService
+# APÓS todos os ItemVenda serem criados.
 
-@receiver([post_save, post_delete], sender=ItemVenda)
-def recalcular_totais_venda(sender, instance, **kwargs):
-    """
-    Sinaliza para a Venda recalcular seus totais após a alteração de um item.
-    """
-    # Chama o método que recalcula e salva os campos de resumo da Venda (definido em models.py)
-    try:
-        instance.venda.recalcular_totais()
-    except Exception as e:
-        logger.error(f"Erro ao recalcular totais da Venda {instance.venda.pk}: {e}")
 
 # =========================================================================
-# LÓGICA 3: FLUXO CRÍTICO: FATURAMENTO E CONTABILIDADE - post_save
+# LÓGICA 3: FLUXO CRÍTICO: FATURAMENTO E CONTABILIDADE
+# (REMOVIDA: O disparo da task assíncrona foi movido para o VendaService)
 # =========================================================================
-
-@receiver(post_save, sender=Venda)
-def automatizar_faturamento_e_contabilidade(sender, instance, created, **kwargs):
-    """
-    Dispara a baixa de estoque, registra o movimento e gera os lançamentos contábeis
-    quando o status muda para FATURADA.
-    """
-    
-    # 1. Condições de Disparo
-    if created: return 
-
-    try:
-        old_instance = sender.objects.get(pk=instance.pk)
-    except sender.DoesNotExist:
-        return
-
-    is_faturada = (old_instance.status != Venda.Status.FATURADA and instance.status == Venda.Status.FATURADA)
-    
-    # Executa APENAS se faturou E não tiver gerado movimento de estoque ainda
-    if is_faturada and not instance.movimento_estoque_criado:
-        
-        logger.info(f"Iniciando faturamento e contabilidade para Venda {instance.pk}.")
-        
-        with transaction.atomic():
-            
-            # A. Baixa de Estoque e Geração de ItemMovimentoEstoque
-            movimento_mestre = None
-            total_cmv_apurado = Decimal('0.00')
-
-            for item_venda in instance.itens_venda.all(): # Usando related_name 'itens_venda'
-                
-                # 1. Acumula CMV
-                cmv_item = item_venda.custo_total_cmv
-                total_cmv_apurado += cmv_item
-
-                if not movimento_mestre:
-                    # 2. Cria o Movimento Mestre (SAIDA_VENDA)
-                    movimento_mestre = MovimentoEstoque.objects.create(
-                        tipo_movimento='SAIDA_VENDA',
-                        venda=instance, 
-                        responsavel=instance.atendente,
-                    )
-
-                # 3. Cria o ItemMovimentoEstoque (SAÍDA)
-                ItemMovimentoEstoque.objects.create(
-                    movimento=movimento_mestre,
-                    produto=item_venda.produto,
-                    quantidade_movimentada=item_venda.quantidade,
-                    preco_unitario=item_venda.custo_unitario_apurado 
-                )
-                
-            # B. Geração dos Lançamentos Contábeis
-            # O código de contabilidade é extenso, mas vamos garantir que ele use o novo status
-            if total_cmv_apurado > 0:
-                # 1. D: CMV | C: Estoque
-                criar_lancamento_contabil_partida_dobrada(
-                    conta_debito_codigo=CONTA_CMV,
-                    conta_credito_codigo=CONTA_ESTOQUE,
-                    valor=total_cmv_apurado,
-                    historico=f"CMV e Baixa de Estoque ref. Venda N° {instance.pk}",
-                    content_object=instance
-                )
-            
-            # 2. D: Clientes/Caixa | C: Receita de Vendas (Simplificação)
-            criar_lancamento_contabil_partida_dobrada(
-                conta_debito_codigo=CONTA_CLIENTES, # ou CONTA_CAIXA_GERAL
-                conta_credito_codigo=CONTA_RECEITA,
-                valor=instance.total_venda,
-                historico=f"Receita Líquida ref. Venda N° {instance.pk}",
-                content_object=instance
-            )
-            
-            # C. Marca como criado para evitar reprocessamento
-            instance.movimento_estoque_criado = True
-            instance.data_faturamento = timezone.now()
-            # Usa save(update_fields) para evitar recursão
-            instance.save(update_fields=['movimento_estoque_criado', 'data_faturamento']) 
-            logger.info(f"Venda {instance.pk} FATURADA e Contabilidade registrada.")
+# O VendaService agora é responsável por:
+# 1. Criar a Venda e os Itens de forma ATÔMICA (R8).
+# 2. DISPARAR a task processar_faturamento_venda.delay(instance.pk) para R9.
 
 
 # =========================================================================
 # LÓGICA 4: CANCELAMENTO E ESTORNO - post_save
+# (MANTIDA: Reação limpa à mudança de status - usa atomicidade corretamente)
 # =========================================================================
 
 @receiver(post_save, sender=Venda)
@@ -181,10 +104,11 @@ def automatizar_cancelamento_e_estorno(sender, instance, created, **kwargs):
             
             # 1. Localiza o MovimentoEstoque de SAIDA_VENDA associado
             try:
+                # O VendaService garante que a Venda tenha MovimentoEstoque associado
                 movimento_mestre = MovimentoEstoque.objects.get(venda=instance, tipo_movimento='SAIDA_VENDA')
                 
-                # Deleta o movimento MESTRE. O signal de post_delete em MovimentoEstoque (no app estoque)
-                # DEVE garantir o estorno do saldo dos itens de volta ao estoque.
+                # Deleta o movimento MESTRE. O signal de post_delete em MovimentoEstoque 
+                # garante o estorno do saldo (Lógica R1)
                 movimento_mestre.delete()
                 
                 instance.movimento_estoque_criado = False # Remove o marcador
@@ -217,8 +141,10 @@ def automatizar_cancelamento_e_estorno(sender, instance, created, **kwargs):
             except MovimentoEstoque.DoesNotExist:
                 logger.warning(f"Venda {instance.pk} CANCELADA. Não havia movimento de estoque para estornar.")
 
+
 # =========================================================================
 # LÓGICA 5: CONTABILIZAÇÃO DE PAGAMENTO - post_save
+# (MANTIDA: Reação limpa à criação de pagamento - usa atomicidade corretamente)
 # =========================================================================
 
 @receiver(post_save, sender=MetodoPagamento)
@@ -232,8 +158,8 @@ def contabilizar_recebimento_por_metodo(sender, instance, created, **kwargs):
         
         # O recebimento só deve ser contabilizado se a venda estiver FATURADA
         if venda.status != Venda.Status.FATURADA:
-             logger.warning(f"Pagamento de Venda {venda.pk} ignorado: Venda não faturada.")
-             return
+              logger.warning(f"Pagamento de Venda {venda.pk} ignorado: Venda não faturada.")
+              return
         
         # Lógica de mapeamento de contas (simplificada)
         conta_debito_destino = CONTA_CAIXA_GERAL # Assumido como padrão para Débito (Entrada)

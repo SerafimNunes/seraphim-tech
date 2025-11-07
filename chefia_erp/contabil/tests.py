@@ -1,216 +1,178 @@
-# ./contabil/tests.py (Versão FINAL E CORRIGIDA)
-
+# =======================================================================
+# ARQUIVO: contabil/tests.py (NOVO - Testes de Integridade R7)
+# =======================================================================
 from django.test import TestCase
 from django.contrib.auth import get_user_model
-from django.db import transaction
 from decimal import Decimal
-from django.utils import timezone
+from django.db.utils import IntegrityError
+from django.db import transaction
 
-# -------------------------------------------------------------------------
-# 1. IMPORTAÇÕES E SETUP DE CLASSES MOCKS E LÓGICA
-# -------------------------------------------------------------------------
-
-# Importa modelos do app contabil
-from contabil.models import PlanoConta, CentroCusto, LancamentoContabil 
-from contabil.services import criar_lancamento_contabil
-from contabil.signals import contabilizar_movimento_estoque, ContasEssenciais 
-
-# Importa os modelos REAIS de Venda, Cliente e Mesa para satisfazer a Chave Estrangeira
-from vendas.models import Venda, Cliente, Mesa 
+# Modelos
+from .models import PlanoConta, LancamentoContabil, LoteContabil
+# Serviços
+from .services import criar_lancamento_contabil
 
 User = get_user_model()
 
-# --- Classes Mocks ---
-class Produto:
-    """Mock do Produto (usado no MovimentoEstoque)."""
-    def __init__(self, pk, nome, preco_custo, preco_venda):
-        self.pk = pk
-        self.nome = nome
-        self.preco_custo = Decimal(str(preco_custo))
-        self.preco_venda = Decimal(str(preco_venda))
-
-class ItemMovimentoEstoque:
-    """Mock do ItemMovimentoEstoque."""
-    def __init__(self, produto, quantidade_movimentada, preco_unitario):
-        self.produto = produto
-        self.quantidade_movimentada = Decimal(str(quantidade_movimentada))
-        self.preco_unitario = Decimal(str(preco_unitario))
-        
-class MovimentoEstoque:
-    """Mock do MovimentoEstoque - O disparador do signal de Estoque."""
-    class TipoMovimento:
-        ENTRADA_PRODUCAO = 'ENTRADA_PRODUCAO'
-        SAIDA_PRODUCAO = 'SAIDA_PRODUCAO'
-    def __init__(self, pk, tipo_movimento, usuario):
-        self.pk = pk
-        self.tipo_movimento = tipo_movimento
-        self.usuario = usuario
-        self.data_movimento = timezone.now()
-        self.itens_movimento = []
-        
-# Funções Auxiliares
-def get_valor_total_movimento(movimento):
-    """Calcula o valor total do MovimentoEstoque (Custo)."""
-    return sum(item.preco_unitario * item.quantidade_movimentada for item in movimento.itens_movimento)
+# Constantes de Contas (As mesmas usadas em compras/signals.py)
+CONTA_ESTOQUE = '1.1.0.2.0.1'           # Ativo (Débito)
+CONTA_FORNECEDORES = '2.1.0.1.0.1'      # Passivo (Crédito)
+CONTA_RECEITA = '4.1.0.1.0.1'           # Receita (Crédito)
+CONTA_DESPESA = '5.1.0.1.0.1'           # Despesa (Débito)
 
 
-# -------------------------------------------------------------------------
-# 2. TEST CASE PRINCIPAL
-# -------------------------------------------------------------------------
+class ContabilidadeBaseTestCase(TestCase):
+    """Configura o ambiente com contas contábeis básicas e um usuário."""
 
-class ContabilSignalsTestCase(TestCase):
-    """
-    Testes de integração para garantir que os Movimentos de Estoque e Vendas
-    disparem a criação de Lançamentos Contábeis (Partidas Dobradas).
-    """
-    
-    # Códigos contábeis para o teste
-    CONTA_CAIXA_COD = '1.1.1'
-    CONTA_RECEITA_COD = '3.1.1'
-    CONTA_CMV_COD = '4.1.1'
-    
-    # Obtém os códigos críticos do signals.py
-    CONTA_ESTOQUE_ACABADO_COD = ContasEssenciais.ESTOQUE_PRODUTO_ACABADO_COD
-    CONTA_CUSTO_PROD_COD = ContasEssenciais.CUSTO_PRODUCAO_ANDAMENTO_COD
-    
-    def setUp(self):
-        super().setUp()
-        self.user = User.objects.create_user(username='test_user', password='password123')
-        self.centro_custo, _ = CentroCusto.objects.get_or_create(nome='Produção/Vendas', ativo=True)
+    @classmethod
+    def setUpTestData(cls):
+        # 1. Criação do Usuário (Obrigatório para rastreabilidade)
+        cls.user = User.objects.create_user(username='tester', email='test@test.com', password='password')
 
-        # Setup de Contas Mínimas para o Teste
-        PlanoConta.objects.get_or_create(codigo=self.CONTA_CAIXA_COD, nome='Caixa/Bancos', tipo='ATIVO', ativo=True)
-        PlanoConta.objects.get_or_create(codigo=self.CONTA_RECEITA_COD, nome='Receita de Vendas', tipo='RECEITA', ativo=True)
-        PlanoConta.objects.get_or_create(codigo=self.CONTA_CMV_COD, nome='Custo da Mercadoria Vendida (CMV)', tipo='DESPESA', ativo=True)
-        PlanoConta.objects.get_or_create(codigo=self.CONTA_ESTOQUE_ACABADO_COD, nome='Estoque de Produto Acabado', tipo='ATIVO', ativo=True)
-        PlanoConta.objects.get_or_create(codigo=self.CONTA_CUSTO_PROD_COD, nome='Custo de Produção em Andamento', tipo='DESPESA', ativo=True)
-        
-        # Conta essencial faltante (necessária para o signal)
-        PlanoConta.objects.get_or_create(
-            codigo=ContasEssenciais.ESTOQUE_INSUMOS_COD, 
-            nome='Estoque de Insumos/Matéria-Prima', 
-            tipo='ATIVO', 
-            ativo=True
+        # 2. Criação das Contas Contábeis (Simulando a base de dados)
+        # Contas Pai necessárias para as contas analíticas (R7)
+        ativo_pai = PlanoConta.objects.create(nome='Ativo', codigo='1', tipo=PlanoConta.TipoConta.ATIVO)
+        passivo_pai = PlanoConta.objects.create(nome='Passivo', codigo='2', tipo=PlanoConta.TipoConta.PASSIVO)
+        receita_pai = PlanoConta.objects.create(nome='Receita', codigo='4', tipo=PlanoConta.TipoConta.RECEITA)
+        despesa_pai = PlanoConta.objects.create(nome='Despesa', codigo='5', tipo=PlanoConta.TipoConta.DESPESA)
+
+        # Contas para Teste de Compra/Estoque (R6)
+        cls.conta_estoque = PlanoConta.objects.create(
+            nome='Estoque (Ativo Circulante)', codigo=CONTA_ESTOQUE, 
+            tipo=PlanoConta.TipoConta.ATIVO, conta_pai=ativo_pai
         )
-
-        # Cria instâncias reais para satisfazer as Chaves Estrangeiras de Venda.
-        self.cliente_teste, _ = Cliente.objects.get_or_create(
-            pk=1, nome="Cliente Teste Contabil",
-            # Adicione aqui outros campos obrigatórios de Cliente, se houver
-        )
-        self.mesa_teste, _ = Mesa.objects.get_or_create(
-            pk=1, numero=99, status='LIVRE',
-            # Adicione aqui outros campos obrigatórios de Mesa, se houver
-        )
-
-        # Mock do Produto
-        self.produto_A = Produto(
-            pk=1, nome='Hambúrguer X', preco_custo=5.00, preco_venda=15.00
+        cls.conta_fornecedores = PlanoConta.objects.create(
+            nome='Fornecedores a Pagar', codigo=CONTA_FORNECEDORES, 
+            tipo=PlanoConta.TipoConta.PASSIVO, conta_pai=passivo_pai
         )
         
-    def test_01_contabilizacao_movimento_estoque_entrada_producao(self):
-        """
-        Verifica o lançamento contábil para ENTRADA de produto acabado via Produção.
-        Lançamento esperado: D-Estoque (Ativo), C-Custo_Produção (Despesa/Contrapartida).
-        """
-        # Arrange
-        self.assertEqual(LancamentoContabil.objects.count(), 0)
-        
-        item_mov = ItemMovimentoEstoque(
-            produto=self.produto_A, quantidade_movimentada=10, preco_unitario=self.produto_A.preco_custo 
+        # Contas para Teste de Venda/Receita
+        cls.conta_caixa = PlanoConta.objects.create(
+            nome='Caixa Geral', codigo='1.1.0.1.0.1', 
+            tipo=PlanoConta.TipoConta.ATIVO, conta_pai=ativo_pai
+        )
+        cls.conta_receita = PlanoConta.objects.create(
+            nome='Receita de Vendas', codigo=CONTA_RECEITA, 
+            tipo=PlanoConta.TipoConta.RECEITA, conta_pai=receita_pai
         )
         
-        movimento_estoque_mock = MovimentoEstoque(
-            pk=100, tipo_movimento=MovimentoEstoque.TipoMovimento.ENTRADA_PRODUCAO, usuario=self.user
+        # Conta para Teste de Despesa
+        cls.conta_despesa = PlanoConta.objects.create(
+            nome='Despesas Administrativas', codigo=CONTA_DESPESA, 
+            tipo=PlanoConta.TipoConta.DESPESA, conta_pai=despesa_pai
         )
-        movimento_estoque_mock.itens_movimento.append(item_mov) 
-        
-        valor_total_movimento = get_valor_total_movimento(movimento_estoque_mock)
-        self.assertEqual(valor_total_movimento, Decimal('50.00'))
 
-        # Act: Simula a chamada da função de signal
-        with transaction.atomic():
-            contabilizar_movimento_estoque(
-                movimento_estoque_mock, 
-                valor_total_movimento, 
-                self.user
-            )
 
-        # Assert: Verifica se o lançamento de PARTIDA DOBRADA foi criado corretamente (2 registros)
-        self.assertEqual(LancamentoContabil.objects.count(), 2)
+class LoteContabilServiceTest(ContabilidadeBaseTestCase):
+    """Testa a funcionalidade principal de criação de Lotes Contábeis (R7)."""
+
+    def test_r7_partida_dobrada_success(self):
+        """Garante que a função cria 1 Lote e 2 Lançamentos (D=C)."""
+        valor_teste = Decimal('100.00')
+        historico = "Teste de Partida Dobrada: Compra de Estoque."
         
-        # D-Estoque (Aumento de Ativo)
-        lancamento_debito = LancamentoContabil.objects.get(
+        # 1. Executa o serviço
+        lote = criar_lancamento_contabil(
+            codigo_debito=CONTA_ESTOQUE,
+            codigo_credito=CONTA_FORNECEDORES,
+            valor=valor_teste,
+            historico_transacao=historico,
+            descricao_lancamento="Lançamento para testar R7",
+            usuario_criacao=self.user
+        )
+
+        # 2. Assertions sobre o LOTE (Cabeçalho)
+        self.assertIsInstance(lote, LoteContabil)
+        self.assertEqual(LoteContabil.objects.count(), 1)
+        self.assertEqual(lote.valor_total, valor_teste)
+        self.assertEqual(lote.historico_transacao, historico)
+        self.assertEqual(lote.usuario_criacao, self.user)
+        
+        # 3. Assertions sobre os LANÇAMENTOS (Linhas)
+        lancamentos = LancamentoContabil.objects.filter(lote_contabil=lote)
+        self.assertEqual(lancamentos.count(), 2, "A partida dobrada deve criar 2 lançamentos.")
+        
+        # 4. Valida Débito e Crédito
+        debito = lancamentos.get(tipo_movimento=LancamentoContabil.TipoMovimento.DEBITO)
+        credito = lancamentos.get(tipo_movimento=LancamentoContabil.TipoMovimento.CREDITO)
+        
+        # Débito (Ativo/Estoque)
+        self.assertEqual(debito.valor, valor_teste)
+        self.assertEqual(debito.plano_conta, self.conta_estoque)
+        
+        # Crédito (Passivo/Fornecedores)
+        self.assertEqual(credito.valor, valor_teste)
+        self.assertEqual(credito.plano_conta, self.conta_fornecedores)
+
+    def test_r7_partida_dobrada_caixa_receita(self):
+        """Testa uma transação Receita -> Caixa."""
+        valor_teste = Decimal('500.00')
+        
+        # 1. Executa o serviço
+        lote = criar_lancamento_contabil(
+            codigo_debito='1.1.0.1.0.1', # Caixa Geral
+            codigo_credito=CONTA_RECEITA,
+            valor=valor_teste,
+            historico_transacao="Teste de Receita",
+            descricao_lancamento="Venda de produto",
+            usuario_criacao=self.user
+        )
+        
+        # 2. Valida o Lançamento de Débito (Aumento do Ativo: Caixa)
+        debito = LancamentoContabil.objects.get(
+            lote_contabil=lote, 
             tipo_movimento=LancamentoContabil.TipoMovimento.DEBITO
         )
-        self.assertEqual(lancamento_debito.plano_conta.codigo, self.CONTA_ESTOQUE_ACABADO_COD)
-        self.assertEqual(lancamento_debito.valor, Decimal('50.00'))
+        self.assertEqual(debito.plano_conta, self.conta_caixa)
         
-        # C-Custo de Produção (Redução de Custo/Contrapartida)
-        lancamento_credito = LancamentoContabil.objects.get(
+        # 3. Valida o Lançamento de Crédito (Aumento da Receita)
+        credito = LancamentoContabil.objects.get(
+            lote_contabil=lote, 
             tipo_movimento=LancamentoContabil.TipoMovimento.CREDITO
         )
-        self.assertEqual(lancamento_credito.plano_conta.codigo, self.CONTA_CUSTO_PROD_COD)
-        self.assertEqual(lancamento_credito.valor, Decimal('50.00'))
+        self.assertEqual(credito.plano_conta, self.conta_receita)
 
-    def test_02_contabilizacao_venda_faturada_cmv_e_receita(self):
-        """
-        Verifica os dois pares de lançamentos contábeis após o FATURAMENTO de uma Venda:
-        1. Receita: D-Caixa, C-Receita.
-        2. CMV: D-CMV, C-Estoque.
-        """
-        # Arrange
-        self.assertEqual(LancamentoContabil.objects.count(), 0)
+    def test_r7_invalid_account_failure(self):
+        """Garante que a transação falha se uma conta não existir e faz rollback."""
         
-        cmv_total_esperado = Decimal('25.00')
-        receita_liquida_esperada = Decimal('75.00')
-        venda_mock_pk = 200 
+        # Antes da execução, o banco está limpo
+        initial_lote_count = LoteContabil.objects.count()
+        initial_lancamento_count = LancamentoContabil.objects.count()
 
-        # 🎯 CORREÇÃO FINAL: Usando o nome de campo CORRETO: 'atendente'
-        Venda.objects.create(
-            pk=venda_mock_pk, 
-            status='FATURADA',
-            atendente=self.user, # NOME DE CAMPO CORRIGIDO
-            valor_total_liquido=receita_liquida_esperada,
-            cliente=self.cliente_teste,
-            mesa=self.mesa_teste,
-        )
-        
-        # Act 1: Lançamento da Receita (D-Caixa, C-Receita)
-        with transaction.atomic():
+        # O código '9.9.9.9.9.9' não existe
+        with self.assertRaises(PlanoConta.DoesNotExist):
             criar_lancamento_contabil(
-                historico_transacao=f"Receita Venda #{venda_mock_pk}",
-                valor=receita_liquida_esperada, 
-                codigo_debito=self.CONTA_CAIXA_COD,
-                codigo_credito=self.CONTA_RECEITA_COD,
-                centro_custo=self.centro_custo, 
-                usuario=self.user,
-                venda_id=venda_mock_pk
+                codigo_debito=CONTA_ESTOQUE,
+                codigo_credito='9.9.9.9.9.9', 
+                valor=Decimal('10.00'),
+                historico_transacao="Erro de conta",
+                descricao_lancamento="Teste de falha",
+                usuario_criacao=self.user
             )
-            
-        # Act 2: Lançamento do CMV (D-CMV, C-Estoque Acabado)
-        with transaction.atomic():
-            criar_lancamento_contabil(
-                historico_transacao=f"Baixa Estoque (CMV) Venda #{venda_mock_pk}",
-                valor=cmv_total_esperado, 
-                codigo_debito=self.CONTA_CMV_COD,
-                codigo_credito=self.CONTA_ESTOQUE_ACABADO_COD,
-                centro_custo=self.centro_custo,
-                usuario=self.user,
-                venda_id=venda_mock_pk
-            )
-        
-        # Assert: Quatro lançamentos criados (2 pares)
-        self.assertEqual(LancamentoContabil.objects.count(), 4)
-        
-        # 1. Receita - Débito (Caixa)
-        lancamento_caixa = LancamentoContabil.objects.get(
-            plano_conta__codigo=self.CONTA_CAIXA_COD, tipo_movimento='DEBITO'
-        )
-        self.assertEqual(lancamento_caixa.valor, receita_liquida_esperada)
 
-        # 4. CMV - Crédito (Estoque)
-        lancamento_estoque_cmv = LancamentoContabil.objects.get(
-            plano_conta__codigo=self.CONTA_ESTOQUE_ACABADO_COD, tipo_movimento='CREDITO'
-        )
-        self.assertEqual(lancamento_estoque_cmv.valor, cmv_total_esperado)
+        # Após o erro, NENHUM registro deve ter sido criado (Rollback Atômico)
+        self.assertEqual(LoteContabil.objects.count(), initial_lote_count, "O Lote não deve ter sido criado.")
+        self.assertEqual(LancamentoContabil.objects.count(), initial_lancamento_count, "O Lançamento não deve ter sido criado.")
+
+    def test_r7_zero_value_failure(self):
+        """Garante que a transação falha se o valor for zero ou negativo."""
+        
+        with self.assertRaises(ValueError):
+            criar_lancamento_contabil(
+                codigo_debito=CONTA_ESTOQUE,
+                codigo_credito=CONTA_FORNECEDORES,
+                valor=Decimal('0.00'),
+                historico_transacao="Valor zero",
+                descricao_lancamento="Teste de valor zero",
+                usuario_criacao=self.user
+            )
+
+        with self.assertRaises(ValueError):
+            criar_lancamento_contabil(
+                codigo_debito=CONTA_ESTOQUE,
+                codigo_credito=CONTA_FORNECEDORES,
+                valor=Decimal('-1.00'),
+                historico_transacao="Valor negativo",
+                descricao_lancamento="Teste de valor negativo",
+                usuario_criacao=self.user
+            )

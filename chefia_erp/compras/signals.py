@@ -1,222 +1,127 @@
-# compras/models.py
-from django.db import models
-from django.utils.translation import gettext_lazy as _
-from django.contrib.auth import get_user_model
-from django.core.validators import MinValueValidator # Importação para garantir valores positivos
+# ==============================================================================
+# ARQUIVO: compras/signals.py (Refatorado R7 - CORRIGIDO)
+# ==============================================================================
+import logging
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.utils import timezone
+from django.db import transaction
 from decimal import Decimal
-from datetime import date
+from datetime import date 
 
-# Importações de outros módulos (Foreign Keys)
-from core.models import Fornecedor # Fornecedor está em 'core'
-from estoque.models import Produto # Produto está em 'estoque'
+# Importações dos modelos locais (Permanece apenas o que é nativo de 'compras')
+from .models import (
+    PedidoCompra, 
+    ItemPedidoCompra, 
+    StatusPedidoCompra, 
+)
 
-# Obtém o modelo de usuário customizado
-User = get_user_model()
+# Importação dos modelos financeiros do módulo 'financeiro' (R6)
+from financeiro.models import ContasAPagar, StatusContasAPagar 
+
+# Importações dos modelos de outros apps
+from estoque.models import MovimentoEstoque, ItemMovimentoEstoque
+# Importação do serviço contábil (renomeado para clareza)
+from contabil.services import criar_lancamento_contabil as criar_lancamento_contabil_partida_dobrada
+
+# Configuração do Logger
+logger = logging.getLogger(__name__)
+
+# =========================================================================
+# CONSTANTES DE CONTAS
+# =========================================================================
+CONTA_ESTOQUE = '1.1.0.2.0.1'            
+CONTA_FORNECEDORES = '2.1.0.1.0.1'       
+CONTA_CAIXA_GERAL = '1.1.0.1.0.1'         
+# =========================================================================
 
 
-# ====================================================================
-# 1. ESCOLHAS DE STATUS (Refatorado para melhor granularidade)
-# ====================================================================
+# --- SIGNAL 1: Entrada de Estoque, Criação do Passivo (R6) e Contabilização (R7) ---
 
-class StatusPedidoCompra(models.TextChoices):
-    PENDENTE = 'PENDENTE', _('Pendente (Rascunho)')
-    APROVADO = 'APROVADO', _('Aprovado Internamente')
-    RECEBIDO_PARCIAL = 'RECEBIDO_PARCIAL', _('Recebido Parcialmente') # Gatilho Parcial para Estoque
-    FINALIZADO = 'FINALIZADO', _('Finalizado (Entrega Total)') # Gatilho Total para Estoque e ContasAPagar
-    CANCELADO = 'CANCELADO', _('Cancelado')
+@receiver(post_save, sender=PedidoCompra)
+def criar_movimento_estoque_e_contabilizar_compra(sender, instance, created, **kwargs):
+    """
+    Cria MovimentoEstoque, registra ContasAPagar (R6) e lança contabilidade (R7).
+    """
+    if kwargs.get('raw'):
+        return
 
-
-class StatusContasAPagar(models.TextChoices):
-    A_PAGAR = 'A_PAGAR', _('A Pagar')
-    PAGO_PARCIAL = 'PAGO_PARCIAL', _('Pago Parcialmente') # Novo status para rastreamento financeiro
-    PAGO_TOTAL = 'PAGO_TOTAL', _('Pago Totalmente/Liquidado')
-    CANCELADO = 'CANCELADO', _('Cancelado')
-
-
-# ====================================================================
-# 2. PEDIDO DE COMPRA (Cabeçalho)
-# ====================================================================
-
-class PedidoCompra(models.Model):
-    # Rastreabilidade
-    fornecedor = models.ForeignKey(
-        Fornecedor,
-        on_delete=models.PROTECT,
-        verbose_name=_("Fornecedor"),
-        related_name='pedidos_compra'
-    )
-    responsavel = models.ForeignKey( # Renomeado para 'responsavel' (padrão estoque)
-        User,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='pedidos_compra_criados',
-        verbose_name=_("Responsável pela Compra")
-    )
-
-    # Informações do Pedido
-    data_pedido = models.DateField(_("Data do Pedido"), default=date.today)
-    data_prevista_recebimento = models.DateField(_("Previsão de Recebimento"), null=True, blank=True)
+    # Critério de execução: Status de recebimento e movimento não criado (flag de segurança)
+    is_received = instance.status in [StatusPedidoCompra.FINALIZADO, StatusPedidoCompra.RECEBIDO_PARCIAL]
     
-    numero_nota_fiscal = models.CharField( # Adicionado conforme plano
-        _("Número da Nota Fiscal (NF)"),
-        max_length=50,
-        blank=True,
-        null=True,
-        unique=True,
-        help_text=_("Obrigatório para pedidos FINALIZADOS.")
-    )
-    
-    total_liquido = models.DecimalField(
-        _("Valor Total Líquido (R$)"), 
-        max_digits=10, 
-        decimal_places=2, 
-        default=Decimal('0.00'), 
-        editable=False # Calculado
-    )
-    observacoes = models.TextField(_("Observações"), blank=True, null=True)
-
-    status = models.CharField(
-        _("Status"), 
-        max_length=20, 
-        choices=StatusPedidoCompra.choices, 
-        default=StatusPedidoCompra.PENDENTE
-    )
-    
-    # Flag de segurança para o signal de estoque/contabilidade
-    movimento_criado = models.BooleanField(_("Movimento de Estoque Contabilizado?"), default=False)
-
-    data_criacao = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = _("Pedido de Compra")
-        verbose_name_plural = _("Pedidos de Compra")
-        ordering = ['-data_pedido', '-data_criacao']
-
-    def __str__(self):
-        return f"Compra #{self.pk} - {self.fornecedor.nome} ({self.get_status_display()})"
-
-    def calcular_total(self):
-        """
-        Recalcula o total do pedido somando o valor de todos os itens.
-        Usado em ItemPedidoCompra post_save/post_delete.
-        """
-        total = self.itens.aggregate(
-            sum_total=models.Sum(models.F('quantidade_pedida') * models.F('preco_unitario_negociado'))
-        )['sum_total']
-        self.total_liquido = total if total is not None else Decimal('0.00')
-        # Salva o campo sem disparar o signal post_save principal para evitar recursão
-        self.save(update_fields=['total_liquido'], force_update=True)
-
-
-# ====================================================================
-# 3. ITENS DO PEDIDO DE COMPRA
-# ====================================================================
-
-class ItemPedidoCompra(models.Model):
-    pedido_compra = models.ForeignKey(
-        PedidoCompra,
-        on_delete=models.CASCADE,
-        verbose_name=_("Pedido de Compra"),
-        related_name='itens'
-    )
-    produto = models.ForeignKey(
-        Produto,
-        on_delete=models.PROTECT,
-        verbose_name=_("Produto / Insumo")
-    )
-    
-    # Precisão ajustada para CMP (3 casas decimais)
-    quantidade_pedida = models.DecimalField(
-        _("Quantidade Pedida"), 
-        max_digits=10, 
-        decimal_places=3, 
-        validators=[MinValueValidator(Decimal('0.001'))]
-    )
-    
-    # Precisão ajustada para CMP (4 casas decimais)
-    preco_unitario_negociado = models.DecimalField(
-        _("Preço Unitário Negociado (R$)"), 
-        max_digits=10, 
-        decimal_places=4,
-        validators=[MinValueValidator(Decimal('0.0001'))]
-    )
-    
-    # Precisão ajustada para CMP (3 casas decimais)
-    quantidade_recebida = models.DecimalField(
-        _("Quantidade Recebida"), 
-        max_digits=10, 
-        decimal_places=3, 
-        default=Decimal('0.000')
-    )
-
-    class Meta:
-        verbose_name = _("Item do Pedido de Compra")
-        verbose_name_plural = _("Itens dos Pedidos de Compra")
-        unique_together = ('pedido_compra', 'produto')
-        ordering = ['id']
-
-    def __str__(self):
-        return f"{self.produto.nome} ({self.quantidade_pedida}x)"
-
-    @property
-    def valor_total_item(self):
-        """Calcula o valor total do item (Quantidade * Preço Negociado)"""
+    if not created and is_received and not instance.movimento_criado:
+        
         try:
-            return self.quantidade_pedida * self.preco_unitario_negociado
-        except TypeError:
-            return Decimal('0.00')
+            with transaction.atomic():
+                
+                # 1.1. Geração do ContasAPagar
+                try:
+                    conta_apagar = instance.contas_a_pagar  
+                    if conta_apagar.valor_original != instance.total_liquido:
+                        conta_apagar.valor_original = instance.total_liquido
+                        conta_apagar.save(update_fields=['valor_original'])
+                except ContasAPagar.DoesNotExist:
+                    ContasAPagar.objects.create(
+                        pedido_compra=instance,
+                        fornecedor=instance.fornecedor,
+                        valor_original=instance.total_liquido,
+                        data_vencimento=instance.data_prevista_recebimento or date.today(), 
+                        usuario_criacao=instance.responsavel,
+                        status=StatusContasAPagar.A_PAGAR 
+                    )
 
+                
+                total_compra = Decimal('0.00')  
+                
+                # 2. Cria o cabeçalho do Movimento de Estoque 
+                movimento = MovimentoEstoque.objects.create(
+                    tipo_movimento='ENTRADA_COMPRA', 
+                    observacoes=f"Entrada por Pedido de Compra #{instance.id} - {instance.fornecedor.nome}",
+                    data_movimento=timezone.now(),
+                    pedido_compra=instance, 
+                    responsavel=instance.responsavel, 
+                )
 
-# ====================================================================
-# 4. CONTAS A PAGAR (Gerado a partir do PedidoCompra)
-# ====================================================================
+                # 3. Processa cada ItemPedidoCompra
+                for item_pedido in instance.itens.all():
+                    produto = item_pedido.produto
+                    quantidade = item_pedido.quantidade_recebida if item_pedido.quantidade_recebida > Decimal('0.00') else item_pedido.quantidade_pedida
+                    preco_unitario = item_pedido.preco_unitario_negociado
 
-class ContasAPagar(models.Model):
-    
-    # Rastreamento da Origem (CRÍTICO: OneToOneField para garantir 1 débito por pedido)
-    pedido_compra = models.OneToOneField( 
-        PedidoCompra,
-        on_delete=models.PROTECT, # Protege o registro do débito (regra de auditoria financeira)
-        verbose_name=_("Pedido de Compra de Origem"),
-        related_name='contas_a_pagar'
-    )
-    
-    fornecedor = models.ForeignKey(
-        Fornecedor,
-        on_delete=models.PROTECT,
-        verbose_name=_("Fornecedor"),
-        related_name='contas_a_pagar_fornecedor' # Renomeado para evitar conflito de related_name com a FK do fornecedor no pedido_compra
-    )
-    
-    valor_original = models.DecimalField(_("Valor Original"), max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
-    valor_pago = models.DecimalField(_("Valor Pago"), max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    
-    data_vencimento = models.DateField(_("Data de Vencimento"))
-    data_pagamento = models.DateField(_("Data de Pagamento"), null=True, blank=True)
-    
-    status = models.CharField(_("Status"), max_length=20, choices=StatusContasAPagar.choices, default=StatusContasAPagar.A_PAGAR)
-    observacoes = models.TextField(_("Observações"), blank=True, null=True)
+                    # 3.1 Cria o ItemMovimentoEstoque (dispara o signal de estoque/CMP)
+                    ItemMovimentoEstoque.objects.create(
+                        movimento=movimento,
+                        produto=produto,
+                        quantidade_movimentada=quantidade,
+                        preco_unitario=preco_unitario
+                    )
+                    
+                    valor_compra = quantidade * preco_unitario
+                    total_compra += valor_compra 
+                    
+                # 4. Lançamento Contábil de Partida Dobrada (CORREÇÃO R7)
+                if total_compra > Decimal('0.00'):
+                    criar_lancamento_contabil_partida_dobrada(
+                        codigo_debito=CONTA_ESTOQUE,
+                        codigo_credito=CONTA_FORNECEDORES,
+                        valor=total_compra,
+                        # NOVO NOME DO ARGUMENTO (R7)
+                        descricao_lancamento=f"Entrada de Estoque/Criação de Contas a Pagar ref. Pedido N° {instance.pk}",
+                        # HISTÓRICO PARA O LOTE (R7)
+                        historico_transacao=f"Registro da entrada de estoque e criação do passivo no Pedido {instance.pk}.",
+                        # NOVO CAMPO OBRIGATÓRIO PARA O LOTE (R7)
+                        usuario_criacao=instance.responsavel, 
+                        pedido_compra=instance 
+                    )
+                    logger.info(f"SUCESSO CONTÁBIL: Lançamento de Compra N° {instance.pk} registrado. Valor: R$ {total_compra:.2f}")
 
-    # Flag de segurança para o signal de contabilização de pagamento
-    contabilizado_pagamento = models.BooleanField(_("Pagamento Contabilizado?"), default=False) 
+                # 5. Finaliza a transação: Marca a flag de segurança
+                instance.movimento_criado = True
+                post_save.disconnect(criar_movimento_estoque_e_contabilizar_compra, sender=PedidoCompra)
+                instance.save(update_fields=['movimento_criado']) 
+                post_save.connect(criar_movimento_estoque_e_contabilizar_compra, sender=PedidoCompra)
+                logger.info(f"Pedido de Compra N° {instance.pk} recebido e estoque/contabilidade atualizados.")
 
-    usuario_criacao = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='contas_a_pagar_criadas',
-        verbose_name=_("Usuário de Criação")
-    )
-    data_criacao = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        verbose_name = _("Conta a Pagar")
-        verbose_name_plural = _("Contas a Pagar")
-        ordering = ['data_vencimento']
-
-    def __str__(self):
-        return f"Pagar R$ {self.valor_original} a {self.fornecedor.nome} ({self.get_status_display()})"
-    
-    @property
-    def saldo_devedor(self):
-        return self.valor_original - self.valor_pago
+        except Exception as e:
+            logger.error(f"ERRO CRÍTICO no signal de Compra {instance.pk}: {e}")
+            raise

@@ -1,10 +1,11 @@
-# estoque/models.py (Versão Mesclada e Atualizada)
+# ====================================================================
+# ARQUIVO: chefia_erp/estoque/models.py (COMPLETO E CORRIGIDO - LOCAL DE ESTOCAGEM)
+# ====================================================================
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-# ATUALIZAÇÃO: Importa Categoria e Usuario (Responsável)
 from core.models import UnidadeMedida, Fornecedor, Cliente, Categoria, Usuario
 from decimal import Decimal
-from django.db.models import F # Importado para uso futuro no F-expression
+from django.db.models import F
 from django.core.exceptions import ValidationError
 
 # Tipos de Movimento de Estoque para rastreabilidade
@@ -33,18 +34,51 @@ STATUS_AUDITORIA = (
 )
 
 
+# ====================================================================
+# NOVO MODELO: LOCAL DE ESTOCAGEM
+# ====================================================================
+
+class LocalEstocagem(models.Model):
+    """
+    Representa o local físico onde um item de estoque está armazenado (ex: Geladeira 1, Estoque Seco).
+    """
+    nome = models.CharField(max_length=100, unique=True, verbose_name=_("Nome do Local"))
+    descricao = models.TextField(blank=True, verbose_name=_("Descrição / Observações"))
+    ativa = models.BooleanField(default=True, verbose_name=_("Local Ativo"))
+
+    class Meta:
+        verbose_name = _("Local de Estocagem")
+        verbose_name_plural = _("Locais de Estocagem")
+        ordering = ['nome']
+
+    def __str__(self):
+        return self.nome
+        
+# ====================================================================
+# CLASSE PRODUTO (ATUALIZADA)
+# ====================================================================
 class Produto(models.Model):
     """
     Representa um item físico gerenciado no estoque (Insumo, Pré-Pronto ou Acabado).
+    Após R7, mantém apenas informações de catálogo e preço de venda.
     """
 
-    # CAMPOS DO PASSO 1.1
+    # CAMPOS DE CATÁLOGO E METADADOS
     categoria = models.ForeignKey(
         Categoria,
         on_delete=models.PROTECT,
         verbose_name=_("Categoria do Produto"),
         help_text=_("Define a organização na Ficha Técnica e Relatórios de Estoque.")
     )
+
+    # 🚨 CAMPO NOVO: LOCAL DE ESTOCAGEM
+    local_estocagem = models.ForeignKey(
+        LocalEstocagem,
+        on_delete=models.PROTECT,
+        verbose_name=_("Local de Estocagem Padrão"),
+        help_text=_("Onde este produto deve ser armazenado fisicamente.")
+    )
+
 
     is_pre_pronto = models.BooleanField(
         default=False,
@@ -66,36 +100,17 @@ class Produto(models.Model):
         help_text=_("Marcar se este produto pode ser vendido diretamente no PDV (Item de Cardápio).")
     )
 
-    # --- Campos de Controle CRÍTICOS (CMP) ---
-
-    # Saldo e Estoque
-    quantidade_atual = models.DecimalField(
-        max_digits=15, decimal_places=3, default=Decimal('0.000'), editable=False,
-        verbose_name=_("Saldo Atual"),
-        help_text=_("Saldo calculado do estoque. Não editável diretamente.")
-    )
+    # Controle e Preço de Venda
     estoque_minimo = models.DecimalField(
         max_digits=15, decimal_places=3, default=Decimal('0.000'),
         verbose_name=_("Estoque Mínimo"),
         help_text=_("Quantidade mínima para disparar Ordem de Produção/Compra.")
     )
-
-    # Custo e Preço
-    custo_medio_ponderado = models.DecimalField(
-        max_digits=15, decimal_places=4, default=Decimal('0.0000'), editable=False,
-        verbose_name=_("Custo Médio Ponderado"),
-        help_text=_("Custo Médio Ponderado (CMP) calculado com 4 casas decimais.")
-    )
-    preco_custo = models.DecimalField(
-        max_digits=10, decimal_places=2, default=Decimal('0.00'),
-        verbose_name=_("Preço de Custo Padrão"),
-        help_text=_("Custo unitário (arredondamento do CMP para 2 casas). É o custo padrão de exibição.")
-    )
     preco_venda = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('0.00'),
         verbose_name=_("Preço de Venda")
     )
-
+    
     # Metadados
     ativo = models.BooleanField(default=True, verbose_name=_("Ativo no Sistema"))
     data_criacao = models.DateTimeField(auto_now_add=True)
@@ -108,10 +123,85 @@ class Produto(models.Model):
 
     def __str__(self):
         return f"{self.nome} ({self.unidade_medida.sigla})"
+    
+    # -------------------------------------------------------------
+    # CAMPOS VIRTUAIS (PROPERTIES) - LER DE CustoProduto (R7)
+    # -------------------------------------------------------------
+    @property
+    def quantidade_atual(self):
+        """Acessa o saldo atual do registro CustoProduto relacionado."""
+        try:
+            # O related_name 'custo_produto' é usado para acessar a instância OneToOne
+            return self.custo_produto.quantidade_atual
+        except CustoProduto.DoesNotExist:
+            return Decimal('0.000')
+
+    @property
+    def custo_medio_ponderado(self):
+        """Acessa o CMP do registro CustoProduto relacionado."""
+        try:
+            return self.custo_produto.custo_medio_ponderado
+        except CustoProduto.DoesNotExist:
+            return Decimal('0.0000')
+            
+    @property
+    def preco_custo(self):
+        """Acessa o Preço de Custo Padrão (arredondado do CMP) do registro CustoProduto relacionado."""
+        try:
+            return self.custo_produto.preco_custo
+        except CustoProduto.DoesNotExist:
+            return Decimal('0.00')
 
 
 # ====================================================================
-# MODELO: REQUISIÇÃO DE ESTOQUE (Passo 1.2)
+# MODELO: CUSTO E SALDO ATUAL (R7 - Segregação)
+# ====================================================================
+class CustoProduto(models.Model):
+    """
+    Armazena o saldo atual (quantidade e valor) e o Custo Médio Ponderado (CMP)
+    de um produto. Este modelo é o centro de valorização do estoque.
+    Possui uma relação 1:1 com Produto.
+    """
+    produto = models.OneToOneField(
+        Produto,
+        on_delete=models.CASCADE,
+        related_name='custo_produto', # Usado para o @property em Produto (produto.custo_produto)
+        verbose_name=_("Produto")
+    )
+
+    # Saldo
+    quantidade_atual = models.DecimalField(
+        max_digits=15, decimal_places=3, default=Decimal('0.000'),
+        verbose_name=_("Saldo Atual"),
+        help_text=_("Saldo calculado de estoque.")
+    )
+
+    # Custo
+    custo_medio_ponderado = models.DecimalField(
+        max_digits=15, decimal_places=4, default=Decimal('0.0000'),
+        verbose_name=_("Custo Médio Ponderado"),
+        help_text=_("Custo Médio Ponderado (CMP) calculado com 4 casas decimais.")
+    )
+    
+    # Preço de Custo (arredondado para 2 casas, para exibição)
+    preco_custo = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        verbose_name=_("Preço de Custo Padrão"),
+        help_text=_("Custo unitário (arredondamento do CMP para 2 casas).")
+    )
+    
+    data_ultima_atualizacao = models.DateTimeField(auto_now=True, verbose_name=_("Última Atualização de Custo"))
+
+    class Meta:
+        verbose_name = _("Custo e Saldo do Produto")
+        verbose_name_plural = _("Custos e Saldos dos Produtos")
+
+    def __str__(self):
+        return f"Custo de {self.produto.nome} (CMP: R$ {self.custo_medio_ponderado:.4f})"
+
+
+# ====================================================================
+# MODELO: REQUISIÇÃO DE ESTOQUE
 # ====================================================================
 class RequisicaoEstoque(models.Model):
     """
@@ -185,7 +275,7 @@ class RequisicaoEstoque(models.Model):
 
 
 # ====================================================================
-# NOVO MODELO: AUDITORIA DE INVENTÁRIO (INSUMOS) (Passo 1.3)
+# MODELO: AUDITORIA DE INVENTÁRIO (INSUMOS)
 # ====================================================================
 class AuditoriaInventario(models.Model):
     """
@@ -215,7 +305,7 @@ class AuditoriaInventario(models.Model):
         Produto,
         on_delete=models.PROTECT,
         # Limita as opções de escolha apenas para produtos que NÃO são pré-prontos
-        limit_choices_to={'is_pre_pronto': False}, 
+        limit_choices_to={'is_pre_pronto': False},  
         verbose_name=_("Produto (Insumo) Contado")
     )
 
@@ -254,7 +344,7 @@ class AuditoriaInventario(models.Model):
 
 
 # ====================================================================
-# NOVO MODELO: AUDITORIA DE PRÉ-PRONTOS (Passo 2.1)
+# MODELO: AUDITORIA DE PRÉ-PRONTOS
 # ====================================================================
 class AuditoriaPrePronto(models.Model):
     """
@@ -285,7 +375,7 @@ class AuditoriaPrePronto(models.Model):
         Produto,
         on_delete=models.PROTECT,
         # Limita as opções de escolha apenas para produtos que SÃO pré-prontos
-        limit_choices_to={'is_pre_pronto': True}, 
+        limit_choices_to={'is_pre_pronto': True},  
         verbose_name=_("Produto (Pré-Pronto) Contado")
     )
     
@@ -324,8 +414,7 @@ class AuditoriaPrePronto(models.Model):
 
 
 # ====================================================================
-# NOVO MODELO: CONTAGEM DIÁRIA FLV (Passo 2.2)
-# Focado em contagem rápida de alta rotatividade.
+# MODELO: CONTAGEM DIÁRIA FLV
 # ====================================================================
 class ContagemDiariaFLV(models.Model):
     """
@@ -485,6 +574,14 @@ class ItemMovimentoEstoque(models.Model):
         verbose_name=_("Preço/Custo Unitário"),
         help_text=_("Preço/Custo usado para valorização do estoque no momento do movimento.")
     )
+    
+    # 🚨 CORREÇÃO CRÍTICA R1: CAMPO SOFT-DELETE IMPLEMENTADO
+    is_estornado = models.BooleanField(
+        default=False,
+        verbose_name=_("Estornado"),
+        help_text=_("Se 'True', o item foi logicamente estornado e deve ser ignorado no cálculo do CMP e do Saldo.")
+    )
+
 
     class Meta:
         verbose_name = _("Item de Movimento de Estoque")

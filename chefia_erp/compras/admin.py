@@ -4,11 +4,11 @@ from django.utils.html import format_html # Importação necessária para format
 from .models import Fornecedor, PedidoCompra, ItemPedidoCompra
 from decimal import Decimal # Necessário para garantir a precisão no display
 
-@admin.register(Fornecedor)
+'''@admin.register(Fornecedor)
 class FornecedorAdmin(admin.ModelAdmin):
     list_display = ('nome', 'cnpj', 'telefone', 'email')
     search_fields = ('nome', 'cnpj')
-
+'''
 
 class ItemPedidoCompraInline(admin.TabularInline):
     model = ItemPedidoCompra

@@ -1,9 +1,10 @@
-# contabil/models.py
+# =======================================================================
+# ARQUIVO: contabil/models.py (Refatorado R7)
+# =======================================================================
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from decimal import Decimal
-# 🚨 NOVO: Importar simple_history para auditoria
 from simple_history.models import HistoricalRecords 
 
 # Padrões de referência de usuário
@@ -51,7 +52,6 @@ class PlanoConta(models.Model):
         verbose_name="Usuário de Criação"
     )
 
-    # Rastreamento de histórico (Auditoria)
     history = HistoricalRecords()
 
     class Meta:
@@ -74,7 +74,6 @@ class CentroCusto(models.Model):
     nome = models.CharField(max_length=100, unique=True, verbose_name="Nome do Centro de Custo")
     ativo = models.BooleanField(default=True)
     
-    # Rastreamento de histórico (Auditoria)
     history = HistoricalRecords()
 
     class Meta:
@@ -86,20 +85,86 @@ class CentroCusto(models.Model):
         return self.nome
 
 # =======================================================================
-# 3. LANÇAMENTO CONTÁBIL (Fato / Transação)
+# 3. LOTE CONTÁBIL (HEADER/CABEÇALHO) <--- NOVO MODELO R7
+# =======================================================================
+
+class LoteContabil(models.Model):
+    """
+    Agrupa os Lançamentos Contábeis (Débito e Crédito) para garantir a Partida Dobrada.
+    Serve como o cabeçalho da transação, centralizando rastreabilidade e histórico.
+    """
+    data_registro = models.DateTimeField(default=timezone.now, verbose_name="Data/Hora do Registro")
+    
+    # Histórico da Transação Completa
+    historico_transacao = models.CharField(max_length=255, verbose_name="Histórico da Transação")
+    
+    # Valor total da transação (Débito e Crédito devem somar este valor)
+    valor_total = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Valor Total do Lote")
+
+    # Referências de Origem (Centralizando a rastreabilidade aqui)
+    venda = models.ForeignKey(
+        'vendas.Venda', 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='lotes_contabeis',
+        verbose_name="Venda de Origem"
+    )
+    pedido_compra = models.ForeignKey(
+        'compras.PedidoCompra', 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='lotes_contabeis',
+        verbose_name="Pedido de Compra de Origem"
+    )
+    movimento_caixa = models.ForeignKey(
+        'caixa.MovimentoCaixa',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='lotes_contabeis',
+        verbose_name="Movimento de Caixa de Origem"
+    )
+    
+    usuario_criacao = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='lotes_contabeis_criados',
+        verbose_name="Usuário de Criação"
+    )
+    
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Lote Contábil (Transação)"
+        verbose_name_plural = "Lotes Contábeis (Transações)"
+        ordering = ['-data_registro']
+    
+    def __str__(self):
+        return f"Lote N° {self.pk} - R${self.valor_total} - {self.historico_transacao[:50]}"
+
+
+# =======================================================================
+# 4. LANÇAMENTO CONTÁBIL (LINHA/Fato) <--- REFATORADO R7
 # =======================================================================
 
 class LancamentoContabil(models.Model):
     """
-    Representa o registro da transação contábil (Débito ou Crédito).
+    Representa o registro da transação contábil (Débito ou Crédito) - Linha de Detalhe.
     """
     class TipoMovimento(models.TextChoices):
         DEBITO = 'DEBITO', 'Débito (Saída/Despesa/Aumento do Passivo)'
         CREDITO = 'CREDITO', 'Crédito (Entrada/Receita/Diminuição do Ativo)'
 
+    # FK para o cabeçalho (Lote) <--- NOVO LINK R7
+    lote_contabil = models.ForeignKey(
+        LoteContabil,
+        on_delete=models.CASCADE, # Se o lote for apagado, as linhas vão junto
+        related_name='lancamentos',
+        verbose_name="Lote Contábil"
+    )
+
     data_lancamento = models.DateTimeField(default=timezone.now, verbose_name="Data do Lançamento")
     
-    # DecimalField é crucial para valores monetários
     valor = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Valor")
     
     tipo_movimento = models.CharField(max_length=10, choices=TipoMovimento.choices, verbose_name="Tipo de Movimento")
@@ -116,42 +181,9 @@ class LancamentoContabil(models.Model):
     
     descricao = models.TextField(verbose_name="Descrição do Lançamento")
 
-    # RASTREABILIDADE (Chaves estrangeiras para os apps de origem)
-    # CRÍTICO: Usar string 'app.Model' para evitar circular dependency
-    venda = models.ForeignKey(
-        'vendas.Venda', 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='lancamentos_contabeis', 
-        verbose_name="Venda de Origem"
-    )
-    pedido_compra = models.ForeignKey(
-        'compras.PedidoCompra', 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='lancamentos_contabeis', 
-        verbose_name="Pedido de Compra de Origem"
-    )
-    
-    # 🚨 NOVO CAMPO PARA O FLUXO DE CAIXA (TAREFA 2.3)
-    movimento_caixa = models.ForeignKey(
-        'caixa.MovimentoCaixa',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='lancamentos_contabeis',
-        verbose_name="Movimento de Caixa de Origem"
-    )
-    
-    # Metadados
-    usuario_criacao = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='lancamentos_contabeis_criados', 
-        verbose_name="Usuário de Criação"
-    )
+    # CAMPOS DE RASTREABILIDADE REMOVIDOS E MOVIDOS PARA LoteContabil
+    # venda, pedido_compra, movimento_caixa, usuario_criacao
 
-    # 🚨 NOVO: Rastreamento de histórico (Auditoria)
     history = HistoricalRecords()
 
     class Meta:
@@ -160,4 +192,4 @@ class LancamentoContabil(models.Model):
         ordering = ['-data_lancamento']
         
     def __str__(self):
-        return f"{self.data_lancamento.strftime('%Y-%m-%d')} - {self.tipo_movimento}: R${self.valor}"
+        return f"{self.lote_contabil.pk} - {self.tipo_movimento}: R${self.valor} ({self.plano_conta.codigo})"
