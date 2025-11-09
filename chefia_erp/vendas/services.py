@@ -9,7 +9,7 @@ import logging
 from .models import Venda, ItemVenda, Comanda, ComandaItem
 from estoque.models import Produto, CustoProduto
 # CORREÇÃO CRÍTICA DO NOME DO MÓDULO (contabilidade -> contabil)
-from contabil.services import criar_lancamento_contabil_partida_dobrada 
+from contabil.services import criar_lancamento_contabil as criar_lancamento_contabil_partida_dobrada 
 # NECESSÁRIO para a lógica assíncrona
 from estoque.services import EstoqueService 
 

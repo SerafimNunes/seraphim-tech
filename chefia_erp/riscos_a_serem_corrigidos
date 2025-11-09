@@ -97,4 +97,16 @@ Risco,Causa,Impacto,Solução Recomendada
 
 4. Hardcoding de Códigos do Plano de Contas,"Códigos contábeis (CONTA_ESTOQUE, CONTA_CMV, CONTA_FORNECEDORES, etc.) estão definidos como constantes (= '1.1.0.2.0.1') em múltiplos arquivos de signals (vendas/signals.py, caixa/signals.py, compras/signals.py).",Alto Custo de Manutenção: Qualquer mudança no Plano de Contas da empresa exige a modificação e o deploy de múltiplos arquivos de código-fonte. Impossibilita a configuração por empresa ou filial.,"Centralização e Configuração via DB: Criar uma tabela de Mapeamento Contábil ou configurar um local centralizado (como um settings do Django) onde esses códigos são carregados dinamicamente. Idealmente, mapear processos de negócio (ex: ""Receita de Venda"") para códigos de conta no banco de dados."
 
-5. Risco de Dados Incompletos em Lançamentos,"O serviço de contabilidade (criar_lancamento_contabil_partida_dobrada) é chamado com diferentes argumentos em cada módulo (ex: pedido_compra=instance em compras/signals.py, mas content_object=venda em vendas/services.py).","Dificuldade em rastrear a origem de um lançamento contábil no futuro, especialmente se o serviço de contabilidade não garantir o uso de um campo de Foreign Key genérico (Generic Foreign Key) ou um campo específico de rastreabilidade para cada tipo de transação.","Padronização da Rastreabilidade: Garantir que o serviço criar_lancamento_contabil_partida_dobrada force a passagem de uma origem rastreável (usando content_object ou FKs específicas) em TODAS as chamadas. Implementar testes unitários para garantir que o lançamento contábil contenha o ID de rastreamento da Venda, Compra ou Movimento de Caixa."
+5. Risco de Dados Incompletos em Lançamentos,"O serviço de contabilidade (criar_lancamento_contabil_partida_dobrada) é chamado com diferentes argumentos em cada módulo (ex: pedido_compra=instance em compras/signals.py, mas content_object=venda em vendas/services.py).","Dificuldade em rastrear a origem de um lançamento contábil no futuro, especialmente se o serviço de contabilidade não garantir o uso de um campo de Foreign Key genérico (Generic Foreign Key) ou um campo específico de rastreabilidade para cada tipo de transação.","Padronização da Rastreabilidade: Garantir que o serviço criar_lancamento_contabil_partida_dobrada force a passagem de uma origem rastreável (usando content_object ou FKs específicas) em TODAS as chamadas. Implementar testes unitários para garantir que o lançamento contábil contenha o ID de rastreamento da Venda, Compra ou Movimento de Caixa."''
+
+
+
+# Adiciona o arquivo modificado (producao/services.py)
+git add producao/services.py
+
+# Cria o commit com a mensagem descritiva
+git commit -m "fix(producao/estoque): Implementa select_for_update no CustoProduto para evitar Race Condition e saldo negativo na baixa de insumos."
+
+git push
+
+git push --set-upstream origin fix/estoque-cmp-race-condition

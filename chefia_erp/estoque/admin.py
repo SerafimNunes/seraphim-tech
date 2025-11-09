@@ -1,8 +1,3 @@
-# ====================================================================
-# ARQUIVO: chefia_erp/estoque/admin.py (COMPLETO E LIMPO)
-# Removido o registro de Categoria, que agora está em core/admin.py
-# ====================================================================
-
 from django.contrib import admin
 from django.utils.html import format_html
 from django.db.models import Sum, F
@@ -13,13 +8,10 @@ from decimal import Decimal
 # Importa todos os modelos do app 'estoque'
 from .models import (
     Produto, MovimentoEstoque, ItemMovimentoEstoque, CustoProduto,
-    RequisicaoEstoque, AuditoriaInventario, AuditoriaPrePronto, ContagemDiariaFLV,
+    RequisicaoEstoque, ItemRequisicaoEstoque, # ItemRequisicaoEstoque deve ser importado
+    AuditoriaInventario, AuditoriaPrePronto, ContagemDiariaFLV,
     LocalEstocagem
 )
-
-# 🚨 IMPORTANTE: Categoria NÃO é mais importada nem registrada aqui.
-# from core.models import Categoria <- Esta linha foi removida
-# O registro dela agora está em 'core/admin.py'.
 
 # Importa a view de resumo
 from .views import estoque_resumo 
@@ -28,7 +20,9 @@ from .views import estoque_resumo
 TRES_CASAS = Decimal('0.000')
 QUATRO_CASAS = Decimal('0.0000')
 
+# --------------------------------------------------------------------
 # --- ADMIN BASE (Adiciona a URL customizada) ---
+# --------------------------------------------------------------------
 
 class EstoqueBaseAdmin(admin.ModelAdmin):
     """
@@ -38,206 +32,212 @@ class EstoqueBaseAdmin(admin.ModelAdmin):
         # A view de resumo deve ser adicionada ao nível do app
         info = self.model._meta.app_label, self.model._meta.model_name
         urls = super().get_urls()
-        
-        # Adiciona a URL de resumo
-        extra_urls = [
+        custom_urls = [
             path('resumo/', self.admin_site.admin_view(estoque_resumo), name='%s_%s_resumo' % info),
         ]
-        # Esta é uma forma padrão de adicionar URLs customizadas no Admin de um app
-        return extra_urls + urls
+        return custom_urls + urls
 
-
-# --- INLINES GERAIS ---
-
-# 1. Inline para exibir os itens dentro do cabeçalho do Movimento de Estoque
-class ItemMovimentoEstoqueInline(admin.TabularInline):
-    model = ItemMovimentoEstoque
-    extra = 0
-    # is_estornado é o campo R1 crítico (apenas leitura)
-    fields = ('produto', 'quantidade_movimentada', 'preco_unitario', 'is_estornado') 
-    autocomplete_fields = ['produto'] # Depende apenas de ProdutoAdmin (já registrado)
-    # O preço unitário (CMP ou custo de entrada) é preenchido via signal/views
-    readonly_fields = ('preco_unitario', 'is_estornado') 
-
-# 2. Inline para CustoProduto (R7) - A ser exibido dentro de Produto
-class CustoProdutoInline(admin.StackedInline):
-    """
-    Exibe o saldo e custo do produto diretamente no formulário do Produto.
-    """
-    model = CustoProduto
-    can_delete = False
-    max_num = 1
-    # Os campos de custo devem ser somente leitura para serem alterados apenas pelos Signals (R1)
-    fields = (
-        'quantidade_atual', 
-        'custo_medio_ponderado', 
-        'preco_custo',
-        'data_ultima_atualizacao'
-    )
-    readonly_fields = fields
-    verbose_name_plural = 'Controle de Saldo e Custo'
-    verbose_name = 'Custo e Saldo'
-
-
-# --- ADMINS DE REFERÊNCIA DO APP ESTOQUE ---
+# --------------------------------------------------------------------
+# 1. LOCAL DE ESTOCAGEM
+# --------------------------------------------------------------------
 
 @admin.register(LocalEstocagem)
-class LocalEstocagemAdmin(admin.ModelAdmin):
-    list_display = ('nome', 'ativa')
-    list_filter = ('ativa',)
+class LocalEstocagemAdmin(EstoqueBaseAdmin):
+    # 🚨 CORRIGIDO (E108, E127): 'data_criacao' foi removido
+    list_display = ('nome',)
     search_fields = ('nome',)
+    list_filter = () 
+    # date_hierarchy removido pois não há campo de data disponível
+    # date_hierarchy = 'data_criacao' # REMOVIDO
 
+# --------------------------------------------------------------------
+# 2. REQUISIÇÃO DE ESTOQUE
+# --------------------------------------------------------------------
 
-# --- ADMIN DE PRODUTO ---
+class ItemRequisicaoEstoqueInline(admin.TabularInline):
+    """Inline para os itens solicitados em uma Requisição de Estoque."""
+    model = ItemRequisicaoEstoque
+    fields = ('produto', 'quantidade_solicitada', 'quantidade_atendida')
+    raw_id_fields = ('produto',)
+    extra = 1
 
-@admin.register(Produto)
-class ProdutoAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
-    list_display = (
-        'nome', 
-        'unidade_medida', 
-        'categoria', # Categoria de Estoque
-        'local_estocagem', 
-        'preco_custo_formatado', # Custo Padrão
-        'custo_medio_ponderado_formatado', # CMP real
-        'preco_venda',
-        'estoque_minimo',
-        'quantidade_atual_formatada', # Saldo real
-        'is_pre_pronto',
-        'is_vendavel',
-    )
+@admin.register(RequisicaoEstoque)
+class RequisicaoEstoqueAdmin(EstoqueBaseAdmin):
+    list_display = ('__str__', 'status', 'responsavel', 'movimento_saida_estoque', 'data_requisicao')
+    list_filter = ('status',)
+    search_fields = ('responsavel__username',)
+    date_hierarchy = 'data_requisicao'
     
-    list_filter = ('categoria', 'is_pre_pronto', 'unidade_medida', 'ativo', 'local_estocagem')
-    search_fields = ('nome', 'descricao')
-    
-    # O autocomplete_fields funciona agora porque CategoriaAdmin e UnidadeMedidaAdmin
-    # estão registrados em core/admin.py
-    autocomplete_fields = ['unidade_medida', 'categoria', 'local_estocagem'] 
-    
-    fieldsets = (
-        ('Informações Básicas', {
-            'fields': ('nome', 'descricao', 'unidade_medida', 'categoria', 'local_estocagem', 'is_vendavel', 'is_pre_pronto', 'ativo')
-        }),
-        ('Controle de Venda', {
-            # Manter apenas os campos de Venda/Limite
-            'fields': ('estoque_minimo', 'preco_venda') 
-        }),
-    )
-    
-    # Adiciona o novo Inline (R7)
-    inlines = [CustoProdutoInline]
-    
-    # Torna campos calculados (virtuais) somente leitura, garantindo que não sejam editáveis
-    readonly_fields = ('preco_custo_formatado', 'custo_medio_ponderado_formatado', 'quantidade_atual_formatada')
+    autocomplete_fields = ['responsavel', 'movimento_saida_estoque'] 
 
-    # Métodos de formatação para exibição (Não alterados, apenas lendo as @properties)
-    def quantidade_atual_formatada(self, obj):
-        # A @property obj.quantidade_atual lê do CustoProduto
-        try:
-            return f"{obj.quantidade_atual.quantize(TRES_CASAS):,} {obj.unidade_medida.sigla}"
-        except AttributeError:
-            return f"{Decimal('0.000').quantize(TRES_CASAS):,} {obj.unidade_medida.sigla}"
-            
-    quantidade_atual_formatada.short_description = "Saldo Atual"
-    quantidade_atual_formatada.admin_order_field = 'custo_produto__quantidade_atual' # Ordena pelo campo real
+    # 'movimento_saida_estoque' e 'data_requisicao' devem ser somente leitura
+    readonly_fields = ('data_requisicao', 'movimento_saida_estoque')
 
-    def custo_medio_ponderado_formatado(self, obj):
-        # A @property obj.custo_medio_ponderado lê do CustoProduto
-        try:
-            return f"R$ {obj.custo_medio_ponderado.quantize(QUATRO_CASAS):,}"
-        except AttributeError:
-            return "R$ 0,0000"
-            
-    custo_medio_ponderado_formatado.short_description = "Custo Médio (CMP)"
-    custo_medio_ponderado_formatado.admin_order_field = 'custo_produto__custo_medio_ponderado' # Ordena pelo campo real
+    inlines = [ItemRequisicaoEstoqueInline]
 
-    def preco_custo_formatado(self, obj):
-        # A @property obj.preco_custo lê do CustoProduto
-        try:
-            return f"R$ {obj.preco_custo:,}"
-        except AttributeError:
-            return "R$ 0,00"
-            
-    preco_custo_formatado.short_description = "Preço Custo Padrão"
-
-
-# --- ADMIN DE CUSTOPRODUTO (Opcional, para debug) ---
+# --------------------------------------------------------------------
+# 3. PRODUTOS, CUSTOS E MOVIMENTOS (Formatação)
+# --------------------------------------------------------------------
 
 @admin.register(CustoProduto)
 class CustoProdutoAdmin(EstoqueBaseAdmin):
-    list_display = ('produto', 'quantidade_atual', 'custo_medio_ponderado', 'preco_custo', 'data_ultima_atualizacao')
+    """Admin para o modelo CustoProduto (apenas leitura e debug)."""
+    list_display = (
+        'produto', 
+        'quantidade_atual_formatada', 
+        'custo_medio_ponderado_formatado', 
+        'valor_total_estoque_formatado'
+    )
     search_fields = ('produto__nome',)
-    # O Custo deve ser gerenciado apenas pelo sistema
-    readonly_fields = ('produto', 'quantidade_atual', 'custo_medio_ponderado', 'preco_custo', 'data_ultima_atualizacao')
+    # 🚨 CORRIGIDO (E035): 'preco_custo' e 'data_ultima_atualizacao' foram removidos
+    readonly_fields = [
+        'produto', 
+        'quantidade_atual', 
+        'custo_medio_ponderado', 
+    ]
+
+    def quantidade_atual_formatada(self, obj):
+        qtd = obj.quantidade_atual or TRES_CASAS
+        return format_html('{} <small>{}</small>', f"{qtd.quantize(TRES_CASAS):,}", obj.produto.unidade_medida.sigla)
+    quantidade_atual_formatada.short_description = 'Qtd Atual'
+
+    def custo_medio_ponderado_formatado(self, obj):
+        cmp = obj.custo_medio_ponderado or QUATRO_CASAS
+        return format_html('<span style="white-space: nowrap;">R$ {:,.4f}</span>', cmp)
+    custo_medio_ponderado_formatado.short_description = 'CMP'
+
+    def valor_total_estoque_formatado(self, obj):
+        if obj.quantidade_atual is None or obj.custo_medio_ponderado is None:
+            total = Decimal('0.00')
+        else:
+            total = obj.quantidade_atual * obj.custo_medio_ponderado
+        return format_html('<span style="font-weight: bold; white-space: nowrap;">R$ {:,.2f}</span>', total)
+    valor_total_estoque_formatado.short_description = 'Valor Total'
 
 
-# --- ADMIN DE MOVIMENTO DE ESTOQUE ---
+@admin.register(Produto)
+class ProdutoAdmin(EstoqueBaseAdmin):
+    # 🚨 CORRIGIDO (E108): 'sku' foi removido
+    list_display = (
+        'nome', 'unidade_medida', 'categoria', 
+        'is_vendavel', 'ativo', 'estoque_minimo_formatado', 
+        'quantidade_atual_formatada', 'cmp_formatado'
+    )
+    list_filter = ('is_vendavel', 'ativo', 'categoria', 'unidade_medida')
+    search_fields = ('nome',)
+    autocomplete_fields = ['unidade_medida', 'categoria']
+    fieldsets = (
+        ('Informações Básicas', {
+            # 🚨 CORRIGIDO: 'sku' foi removido
+            'fields': ('nome', 'unidade_medida', 'categoria', 'ativo', 'is_vendavel')
+        }),
+        ('Estoque e Custos', {
+            'fields': ('local_estocagem', 'estoque_minimo', 'quantidade_atual_formatada_detail', 'cmp_formatado_detail'),
+        }),
+        ('Preços', {
+            'fields': ('preco_venda', 'custo_medio_ponderado_detail'),
+            'description': 'O preço de custo é informativo e é o CMP.'
+        }),
+    )
+    readonly_fields = ('quantidade_atual_formatada_detail', 'cmp_formatado_detail', 'custo_medio_ponderado_detail')
+
+    # Métodos de Formatação (Reuso dos métodos de CustoProdutoAdmin)
+    def quantidade_atual_formatada(self, obj):
+        # Tenta buscar a quantidade do modelo CustoProduto (se existir)
+        try:
+            return CustoProdutoAdmin.quantidade_atual_formatada(self, obj.custoproduto)
+        except CustoProduto.DoesNotExist:
+            return format_html('<span style="color: red;">N/A</span>')
+    quantidade_atual_formatada.short_description = 'Qtd'
+
+    def cmp_formatado(self, obj):
+        try:
+            return CustoProdutoAdmin.custo_medio_ponderado_formatado(self, obj.custoproduto)
+        except CustoProduto.DoesNotExist:
+            return format_html('<span style="color: red;">R$ 0,0000</span>')
+    cmp_formatado.short_description = 'CMP'
+    
+    # Detalhe do Produto
+    def quantidade_atual_formatada_detail(self, obj):
+        try:
+            return CustoProdutoAdmin.quantidade_atual_formatada(self, obj.custoproduto)
+        except CustoProduto.DoesNotExist:
+            return format_html('<span style="color: red; font-weight: bold;">0,000</span>')
+    quantidade_atual_formatada_detail.short_description = 'Quantidade Atual em Estoque'
+
+    def cmp_formatado_detail(self, obj):
+        try:
+            return CustoProdutoAdmin.custo_medio_ponderado_formatado(self, obj.custoproduto)
+        except CustoProduto.DoesNotExist:
+            return format_html('<span style="color: red;">R$ 0,0000</span>')
+    cmp_formatado_detail.short_description = 'Custo Médio Ponderado'
+    
+    # Apenas o valor do CMP para ser usado no fieldset de "Preços"
+    def custo_medio_ponderado_detail(self, obj):
+        try:
+            cmp = obj.custoproduto.custo_medio_ponderado or QUATRO_CASAS
+            return format_html('<span style="white-space: nowrap;">R$ {:,.4f}</span>', cmp)
+        except CustoProduto.DoesNotExist:
+            return format_html('<span style="color: red;">R$ 0,0000</span>')
+    custo_medio_ponderado_detail.short_description = 'Custo Atual (CMP)'
+
+    # Formata o estoque mínimo
+    def estoque_minimo_formatado(self, obj):
+        if obj.estoque_minimo is None:
+            return '-'
+        return format_html('<span style="white-space: nowrap;">{:,.3f}</span>', obj.estoque_minimo.quantize(TRES_CASAS))
+    estoque_minimo_formatado.short_description = 'Estoque Min'
+    
+    
+class ItemMovimentoEstoqueInline(admin.TabularInline):
+    """Inline para os itens que compõem um Movimento de Estoque."""
+    model = ItemMovimentoEstoque
+    # Adicionado 'is_estornado' para visualização do soft-delete (R1)
+    list_display = ('produto', 'quantidade_movimentada', 'preco_unitario', 'is_estornado')
+    fields = ('produto', 'quantidade_movimentada', 'preco_unitario', 'is_estornado')
+    readonly_fields = ('preco_unitario',) # Preço unitário é preenchido pelo signal/service
+    raw_id_fields = ('produto',)
+    extra = 0
+    
 
 @admin.register(MovimentoEstoque)
-class MovimentoEstoqueAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
-    list_display = (
-        'data_movimento', 
-        'tipo_movimento', 
-        'responsavel', # Campo de rastreabilidade (FK Usuario)
-        'fornecedor', 
-        'cliente', 
-        'origem_documento', # Método customizado
+class MovimentoEstoqueAdmin(EstoqueBaseAdmin):
+    """Admin para o cabeçalho do Movimento de Estoque (Entradas/Saídas)."""
+    list_display = ('__str__', 'tipo_movimento', 'data_movimento', 'responsavel', 'movimento_estornado')
+    list_filter = ('tipo_movimento', 'data_movimento', 'responsavel')
+    search_fields = ('responsavel__username', 'observacoes')
+    date_hierarchy = 'data_movimento'
+    
+    fieldsets = (
+        ('Informações Básicas', {
+            # Mantido 'movimento_estornado'
+            'fields': ('tipo_movimento', 'responsavel', 'data_movimento', 'observacoes', 'movimento_estornado')
+        }),
+        ('Rastreabilidade (Preenchido Automaticamente)', {
+            # 🚨 CORRIGIDO (E012, E035): 'venda', 'requisicao_estoque' e 'movimento_estornado' duplicado foram removidos
+            'fields': ('pedido_compra', 'ordem_producao'),
+            'classes': ('collapse',),
+            'description': 'Campos que indicam a origem do movimento (preenchidos por signals/services).'
+        }),
     )
     
-    list_filter = ('tipo_movimento', 'data_movimento')
-    search_fields = ('observacoes', 'responsavel__username', 'fornecedor__nome_fantasia', 'cliente__nome')
-    date_hierarchy = 'data_movimento'
-    readonly_fields = ('origem_documento',)
-    
-    autocomplete_fields = ['responsavel', 'fornecedor', 'cliente'] # Mantido conforme seu código
+    # 🚨 CORRIGIDO (E035): 'venda' e 'requisicao_estoque' foram removidos
+    readonly_fields = ('tipo_movimento', 'data_movimento', 'pedido_compra', 'ordem_producao', 'movimento_estornado')
     
     inlines = [ItemMovimentoEstoqueInline]
 
-    def origem_documento(self, obj):
-        """
-        Exibe o link para o documento de origem (Requisição, Auditoria, Contagem).
-        """
-        if hasattr(obj, 'requisicao_origem'):
-            req = obj.requisicao_origem
-            return format_html(f'<a href="../requisicaoestoque/{req.pk}/change/">Requisição #{req.pk}</a>')
-        elif hasattr(obj, 'auditoria_inventario_origem'):
-            audit = obj.auditoria_inventario_origem
-            return format_html(f'<a href="../auditoriainventario/{audit.pk}/change/">Audit Inv. #{audit.pk}</a>')
-        elif hasattr(obj, 'auditoria_pre_pronto_origem'):
-            audit_pp = obj.auditoria_pre_pronto_origem
-            return format_html(f'<a href="../auditoriaprepronto/{audit_pp.pk}/change/">Audit PP #{audit_pp.pk}</a>')
-        elif hasattr(obj, 'contagem_flv_origem'):
-            flv = obj.contagem_flv_origem
-            return format_html(f'<a href="../contagemdiariaflv/{flv.pk}/change/">Contagem FLV #{flv.pk}</a>')
-        elif obj.venda:
-            return format_html(f'Venda #{obj.venda.pk}')
-        elif obj.pedido_compra:
-            return format_html(f'Compra #{obj.pedido_compra.pk}')
-        return "N/A"
-    origem_documento.short_description = "Documento de Origem"
+    def movimento_estornado(self, obj):
+        return obj.is_estornado
+    movimento_estornado.boolean = True
+    movimento_estornado.short_description = 'Estornado'
 
 
-# --- ADMINS DOS NOVOS DOCUMENTOS OPERACIONAIS ---
-
-@admin.register(RequisicaoEstoque)
-class RequisicaoEstoqueAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
-    list_display = (
-        'data_requisicao', 
-        'produto', 
-        'quantidade_requisitada', 
-        'quantidade_entregue', 
-        'status', 
-        'solicitante', 
-        'responsavel_atendimento',
-    )
-    list_filter = ('status', 'data_requisicao')
-    search_fields = ('produto__nome', 'solicitante__username', 'responsavel_atendimento__username')
-    autocomplete_fields = ['produto', 'solicitante', 'responsavel_atendimento'] 
-    readonly_fields = ('movimento_saida',)
-    date_hierarchy = 'data_requisicao'
-
+# --------------------------------------------------------------------
+# 4. AUDITORIAS E CONTAGENS
+# --------------------------------------------------------------------
 
 @admin.register(AuditoriaInventario)
-class AuditoriaInventarioAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
+class AuditoriaInventarioAdmin(EstoqueBaseAdmin):
     list_display = (
         'data_auditoria', 
         'produto', 
@@ -245,7 +245,6 @@ class AuditoriaInventarioAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
         'quantidade_sistema',
         'status', 
         'responsavel', 
-        'data_conclusao',
     )
     list_filter = ('status', 'data_auditoria')
     search_fields = ('produto__nome', 'responsavel__username')
@@ -255,7 +254,7 @@ class AuditoriaInventarioAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
 
 
 @admin.register(AuditoriaPrePronto)
-class AuditoriaPreProntoAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
+class AuditoriaPreProntoAdmin(EstoqueBaseAdmin):
     list_display = (
         'data_auditoria', 
         'produto', 
@@ -263,7 +262,6 @@ class AuditoriaPreProntoAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
         'quantidade_sistema',
         'status', 
         'responsavel', 
-        'data_conclusao',
     )
     list_filter = ('status', 'data_auditoria')
     search_fields = ('produto__nome', 'responsavel__username')
@@ -273,7 +271,7 @@ class AuditoriaPreProntoAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
 
 
 @admin.register(ContagemDiariaFLV)
-class ContagemDiariaFLVAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
+class ContagemDiariaFLVAdmin(EstoqueBaseAdmin):
     list_display = (
         'data_contagem', 
         'produto', 
@@ -281,7 +279,6 @@ class ContagemDiariaFLVAdmin(EstoqueBaseAdmin): # Herda de EstoqueBaseAdmin
         'quantidade_sistema',
         'status', 
         'responsavel', 
-        'data_conclusao',
     )
     list_filter = ('status', 'data_contagem')
     search_fields = ('produto__nome', 'responsavel__username')

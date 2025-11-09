@@ -9,7 +9,6 @@ from decimal import Decimal
 from .models import MovimentoCaixa
 # Importação do Serviço Contábil
 from contabil.services import criar_lancamento_contabil as criar_lancamento_contabil_partida_dobrada
-
 # Configuração do Logger
 logger = logging.getLogger(__name__)
 

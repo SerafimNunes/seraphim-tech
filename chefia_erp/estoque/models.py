@@ -1,5 +1,6 @@
 # ====================================================================
-# ARQUIVO: chefia_erp/estoque/models.py (COMPLETO E CORRIGIDO - LOCAL DE ESTOCAGEM)
+# ARQUIVO: chefia_erp/estoque/models.py (COMPLETO E CORRIGIDO)
+# R2: Adicionado item_origem_estorno (ForeignKey self-referencing)
 # ====================================================================
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -7,6 +8,8 @@ from core.models import UnidadeMedida, Fornecedor, Cliente, Categoria, Usuario
 from decimal import Decimal
 from django.db.models import F
 from django.core.exceptions import ValidationError
+from django.db.models import UniqueConstraint # Adicionar para R2/R3
+from django.core.validators import MinValueValidator # Necessário para ItemPedidoCompra
 
 # Tipos de Movimento de Estoque para rastreabilidade
 TIPOS_MOVIMENTO = (
@@ -33,520 +36,195 @@ STATUS_AUDITORIA = (
     ('CANCELADA', _('Cancelada')),
 )
 
-
-# ====================================================================
-# NOVO MODELO: LOCAL DE ESTOCAGEM
-# ====================================================================
-
 class LocalEstocagem(models.Model):
-    """
-    Representa o local físico onde um item de estoque está armazenado (ex: Geladeira 1, Estoque Seco).
-    """
-    nome = models.CharField(max_length=100, unique=True, verbose_name=_("Nome do Local"))
-    descricao = models.TextField(blank=True, verbose_name=_("Descrição / Observações"))
-    ativa = models.BooleanField(default=True, verbose_name=_("Local Ativo"))
+    """Localização física ou lógica de um produto no estoque."""
+    nome = models.CharField(max_length=100, unique=True, verbose_name=_("Nome"))
+    descricao = models.TextField(blank=True, verbose_name=_("Descrição"))
 
     class Meta:
         verbose_name = _("Local de Estocagem")
         verbose_name_plural = _("Locais de Estocagem")
-        ordering = ['nome']
 
     def __str__(self):
         return self.nome
-        
-# ====================================================================
-# CLASSE PRODUTO (ATUALIZADA)
-# ====================================================================
+
 class Produto(models.Model):
     """
-    Representa um item físico gerenciado no estoque (Insumo, Pré-Pronto ou Acabado).
-    Após R7, mantém apenas informações de catálogo e preço de venda.
+    Representa um item no estoque, seja matéria-prima, insumo, ou produto final.
     """
-
-    # CAMPOS DE CATÁLOGO E METADADOS
+    nome = models.CharField(max_length=200, verbose_name=_("Nome"))
+    unidade_medida = models.ForeignKey(
+        UnidadeMedida,
+        on_delete=models.PROTECT,
+        verbose_name=_("Unidade de Medida")
+    )
     categoria = models.ForeignKey(
         Categoria,
         on_delete=models.PROTECT,
-        verbose_name=_("Categoria do Produto"),
-        help_text=_("Define a organização na Ficha Técnica e Relatórios de Estoque.")
+        verbose_name=_("Categoria"),
+        null=True, blank=True
     )
-
-    # 🚨 CAMPO NOVO: LOCAL DE ESTOCAGEM
+    codigo_barras = models.CharField(
+        max_length=50, 
+        unique=True, 
+        null=True, blank=True, 
+        verbose_name=_("Código de Barras")
+    )
+    
+    # NOVOS CAMPOS DE LOCAL E ESTOQUE MÍNIMO
     local_estocagem = models.ForeignKey(
         LocalEstocagem,
-        on_delete=models.PROTECT,
-        verbose_name=_("Local de Estocagem Padrão"),
-        help_text=_("Onde este produto deve ser armazenado fisicamente.")
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        verbose_name=_("Local de Estocagem Padrão")
     )
-
-
-    is_pre_pronto = models.BooleanField(
-        default=False,
-        verbose_name=_("É Pré-Pronto/Produto Intermediário?"),
-        help_text=_("Marcar se este produto é feito internamente e usado como insumo em outros produtos finais.")
-    )
-
-    # Nome e Descrição
-    nome = models.CharField(max_length=255, verbose_name=_("Nome do Produto"))
-    descricao = models.TextField(blank=True, verbose_name=_("Descrição Detalhada"))
-
-    # Unidade de Medida
-    unidade_medida = models.ForeignKey(UnidadeMedida, on_delete=models.PROTECT, verbose_name=_("Unidade de Medida"))
-
-    # Status de Venda
-    is_vendavel = models.BooleanField(
-        default=False,
-        verbose_name=_("Pode ser Vendido (Exibido no Cardápio)"),
-        help_text=_("Marcar se este produto pode ser vendido diretamente no PDV (Item de Cardápio).")
-    )
-
-    # Controle e Preço de Venda
+    
     estoque_minimo = models.DecimalField(
-        max_digits=15, decimal_places=3, default=Decimal('0.000'),
-        verbose_name=_("Estoque Mínimo"),
-        help_text=_("Quantidade mínima para disparar Ordem de Produção/Compra.")
+        max_digits=10,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name=_("Estoque Mínimo (Alerta)")
+    )
+    
+    # CAMPOS DE VALOR/CUSTO (Gerenciados pelo CustoProduto, mas espelhados aqui)
+    # R7: CMP e saldo foram movidos para CustoProduto, mas mantemos o custo de última compra
+    preco_custo = models.DecimalField(
+        max_digits=10,
+        decimal_places=4, # Aumentado para 4 casas para precisão em CMP
+        default=Decimal('0.0000'),
+        verbose_name=_("Custo de Última Compra/Entrada")
     )
     preco_venda = models.DecimalField(
-        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
         verbose_name=_("Preço de Venda")
     )
     
-    # Metadados
-    ativo = models.BooleanField(default=True, verbose_name=_("Ativo no Sistema"))
-    data_criacao = models.DateTimeField(auto_now_add=True)
-    data_ultima_edicao = models.DateTimeField(auto_now=True)
+    # FLAGS DE CLASSIFICAÇÃO
+    is_vendavel = models.BooleanField(
+        default=True,
+        verbose_name=_("É Vendável? (Produto Final)")
+    )
+    is_insumo = models.BooleanField(
+        default=False,
+        verbose_name=_("É Insumo? (Matéria-prima/Componente)")
+    )
+    is_pre_pronto = models.BooleanField(
+        default=False,
+        verbose_name=_("É Pré-Pronto/Semi-acabado?")
+    )
+    ativo = models.BooleanField(default=True, verbose_name=_("Ativo"))
 
     class Meta:
         verbose_name = _("Produto")
         verbose_name_plural = _("Produtos")
-        ordering = ['nome']
 
     def __str__(self):
-        return f"{self.nome} ({self.unidade_medida.sigla})"
-    
-    # -------------------------------------------------------------
-    # CAMPOS VIRTUAIS (PROPERTIES) - LER DE CustoProduto (R7)
-    # -------------------------------------------------------------
-    @property
-    def quantidade_atual(self):
-        """Acessa o saldo atual do registro CustoProduto relacionado."""
-        try:
-            # O related_name 'custo_produto' é usado para acessar a instância OneToOne
-            return self.custo_produto.quantidade_atual
-        except CustoProduto.DoesNotExist:
-            return Decimal('0.000')
+        return self.nome
 
-    @property
-    def custo_medio_ponderado(self):
-        """Acessa o CMP do registro CustoProduto relacionado."""
-        try:
-            return self.custo_produto.custo_medio_ponderado
-        except CustoProduto.DoesNotExist:
-            return Decimal('0.0000')
-            
-    @property
-    def preco_custo(self):
-        """Acessa o Preço de Custo Padrão (arredondado do CMP) do registro CustoProduto relacionado."""
-        try:
-            return self.custo_produto.preco_custo
-        except CustoProduto.DoesNotExist:
-            return Decimal('0.00')
+# =========================================================
+# MODELOS DE CONTROLE FINANCEIRO/QUANTITATIVO
+# =========================================================
 
-
-# ====================================================================
-# MODELO: CUSTO E SALDO ATUAL (R7 - Segregação)
-# ====================================================================
 class CustoProduto(models.Model):
     """
-    Armazena o saldo atual (quantidade e valor) e o Custo Médio Ponderado (CMP)
-    de um produto. Este modelo é o centro de valorização do estoque.
-    Possui uma relação 1:1 com Produto.
+    Armazena o saldo atual e o CMP do Produto. 
+    Design pattern para isolar e proteger os campos críticos.
     """
     produto = models.OneToOneField(
         Produto,
         on_delete=models.CASCADE,
-        related_name='custo_produto', # Usado para o @property em Produto (produto.custo_produto)
+        related_name='custo_info',
         verbose_name=_("Produto")
     )
 
-    # Saldo
     quantidade_atual = models.DecimalField(
-        max_digits=15, decimal_places=3, default=Decimal('0.000'),
-        verbose_name=_("Saldo Atual"),
-        help_text=_("Saldo calculado de estoque.")
+        max_digits=15,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name=_("Saldo Atual")
     )
 
-    # Custo
     custo_medio_ponderado = models.DecimalField(
-        max_digits=15, decimal_places=4, default=Decimal('0.0000'),
-        verbose_name=_("Custo Médio Ponderado"),
-        help_text=_("Custo Médio Ponderado (CMP) calculado com 4 casas decimais.")
+        max_digits=10,
+        decimal_places=4, # CRÍTICO: 4 casas decimais para precisão de custo
+        default=Decimal('0.0000'),
+        verbose_name=_("Custo Médio Ponderado (CMP)")
     )
     
-    # Preço de Custo (arredondado para 2 casas, para exibição)
-    preco_custo = models.DecimalField(
-        max_digits=10, decimal_places=2, default=Decimal('0.00'),
-        verbose_name=_("Preço de Custo Padrão"),
-        help_text=_("Custo unitário (arredondamento do CMP para 2 casas).")
+    # NOVO: Valor total em estoque (para otimizar queries no dashboard)
+    valor_total_estoque = models.DecimalField(
+        max_digits=15,
+        decimal_places=4, # CRÍTICO: 4 casas decimais para precisão de custo
+        default=Decimal('0.0000'),
+        verbose_name=_("Valor Total em Estoque (Saldo * CMP)")
     )
-    
-    data_ultima_atualizacao = models.DateTimeField(auto_now=True, verbose_name=_("Última Atualização de Custo"))
 
     class Meta:
         verbose_name = _("Custo e Saldo do Produto")
         verbose_name_plural = _("Custos e Saldos dos Produtos")
 
     def __str__(self):
-        return f"Custo de {self.produto.nome} (CMP: R$ {self.custo_medio_ponderado:.4f})"
-
-
-# ====================================================================
-# MODELO: REQUISIÇÃO DE ESTOQUE
-# ====================================================================
-class RequisicaoEstoque(models.Model):
-    """
-    Representa uma solicitação de insumos ou produtos pré-prontos
-    feita pela produção/cozinha ao estoque.
-    """
-    
-    # Rastreabilidade e Status
-    data_requisicao = models.DateTimeField(auto_now_add=True, verbose_name=_("Data da Requisição"))
-    status = models.CharField(
-        max_length=10,
-        choices=STATUS_REQUISICAO,
-        default='PENDENTE',
-        verbose_name=_("Status da Requisição")
-    )
-    
-    # Usuários (FKs para core.Usuario) - Nomenclatura Padrão 'responsavel'
-    solicitante = models.ForeignKey(
-        Usuario,
-        on_delete=models.PROTECT,
-        related_name='requisicoes_solicitadas',
-        verbose_name=_("Solicitante (Produção/Cozinha)")
-    )
-    responsavel_atendimento = models.ForeignKey(
-        Usuario,
-        on_delete=models.SET_NULL,
-        related_name='requisicoes_atendidas',
-        verbose_name=_("Responsável pelo Atendimento (Estoque)"),
-        null=True, blank=True
-    )
-    
-    # Produto e Quantidades
-    produto = models.ForeignKey(
-        Produto,
-        on_delete=models.PROTECT,
-        verbose_name=_("Produto Requisitado")
-    )
-    
-    quantidade_requisitada = models.DecimalField(
-        max_digits=15,
-        decimal_places=3,
-        verbose_name=_("Quantidade Requisitada")
-    )
-    
-    quantidade_entregue = models.DecimalField(
-        max_digits=15,
-        decimal_places=3,
-        default=Decimal('0.000'),
-        verbose_name=_("Quantidade Entregue"),
-        help_text=_("Quantidade efetivamente liberada e registrada como SAÍDA no estoque.")
-    )
-    
-    observacoes = models.TextField(blank=True, null=True, verbose_name=_("Observações do Solicitante"))
-    
-    # Campo para vincular ao movimento de saída que esta requisição gerou
-    movimento_saida = models.OneToOneField(
-        'MovimentoEstoque',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='requisicao_origem',
-        verbose_name=_("Movimento de Saída Gerado")
-    )
-
-    class Meta:
-        verbose_name = _("Requisição de Estoque")
-        verbose_name_plural = _("Requisições de Estoque")
-        ordering = ['data_requisicao']
-        
-    def __str__(self):
-        return f"Req #{self.pk} - {self.produto.nome} ({self.get_status_display()})"
-
-
-# ====================================================================
-# MODELO: AUDITORIA DE INVENTÁRIO (INSUMOS)
-# ====================================================================
-class AuditoriaInventario(models.Model):
-    """
-    Modelo para registrar a contagem cega de insumos/matéria-prima.
-    Gera um movimento de ajuste de estoque (entrada ou saída) ao ser concluída.
-    """
-    data_auditoria = models.DateTimeField(auto_now_add=True, verbose_name=_("Data da Auditoria"))
-    data_conclusao = models.DateTimeField(null=True, blank=True, verbose_name=_("Data de Conclusão"))
-    
-    status = models.CharField(
-        max_length=10,
-        choices=STATUS_AUDITORIA,
-        default='PENDENTE',
-        verbose_name=_("Status da Auditoria")
-    )
-    
-    # Rastreabilidade do Usuário (Nomenclatura Padrão 'responsavel')
-    responsavel = models.ForeignKey(
-        Usuario,
-        on_delete=models.PROTECT,
-        related_name='auditorias_inventario_realizadas',
-        verbose_name=_("Responsável pela Contagem")
-    )
-    
-    # Produto: Limitado apenas a Insumos/Matéria-Prima
-    produto = models.ForeignKey(
-        Produto,
-        on_delete=models.PROTECT,
-        # Limita as opções de escolha apenas para produtos que NÃO são pré-prontos
-        limit_choices_to={'is_pre_pronto': False},  
-        verbose_name=_("Produto (Insumo) Contado")
-    )
-
-    # Campo Cego: O valor contado em campo, sem consultar o saldo atual
-    quantidade_contada = models.DecimalField(
-        max_digits=15,
-        decimal_places=3,
-        verbose_name=_("Quantidade Contada em Campo")
-    )
-    
-    # Campo para armazenar o saldo do sistema no momento da contagem (para cálculo da diferença)
-    quantidade_sistema = models.DecimalField(
-        max_digits=15, decimal_places=3, default=Decimal('0.000'), editable=False,
-        verbose_name=_("Quantidade no Sistema"),
-        help_text=_("Saldo do produto no momento em que a auditoria foi iniciada.")
-    )
-    
-    observacoes = models.TextField(blank=True, null=True, verbose_name=_("Observações do Auditor"))
-    
-    # Campo para vincular ao movimento de ajuste (entrada ou saída) que esta auditoria gerou
-    movimento_ajuste = models.OneToOneField(
-        'MovimentoEstoque',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='auditoria_inventario_origem',
-        verbose_name=_("Movimento de Ajuste Gerado")
-    )
-    
-    class Meta:
-        verbose_name = _("Auditoria de Inventário (Insumos)")
-        verbose_name_plural = _("Auditorias de Inventário (Insumos)")
-        ordering = ['-data_auditoria']
-        
-    def __str__(self):
-        return f"Audit #{self.pk} - {self.produto.nome} ({self.get_status_display()})"
-
-
-# ====================================================================
-# MODELO: AUDITORIA DE PRÉ-PRONTOS
-# ====================================================================
-class AuditoriaPrePronto(models.Model):
-    """
-    Modelo para registrar a contagem cega de produtos/subprodutos intermediários
-    (itens com is_pre_pronto=True).
-    Gera um movimento de ajuste de estoque (entrada ou saída) ao ser concluída.
-    """
-    data_auditoria = models.DateTimeField(auto_now_add=True, verbose_name=_("Data da Auditoria"))
-    data_conclusao = models.DateTimeField(null=True, blank=True, verbose_name=_("Data de Conclusão"))
-    
-    status = models.CharField(
-        max_length=10,
-        choices=STATUS_AUDITORIA,
-        default='PENDENTE',
-        verbose_name=_("Status da Auditoria")
-    )
-    
-    # Rastreabilidade do Usuário (Nomenclatura Padrão 'responsavel')
-    responsavel = models.ForeignKey(
-        Usuario,
-        on_delete=models.PROTECT,
-        related_name='auditorias_pre_pronto_realizadas',
-        verbose_name=_("Responsável pela Contagem")
-    )
-    
-    # Produto: Limitado apenas a Pré-Prontos
-    produto = models.ForeignKey(
-        Produto,
-        on_delete=models.PROTECT,
-        # Limita as opções de escolha apenas para produtos que SÃO pré-prontos
-        limit_choices_to={'is_pre_pronto': True},  
-        verbose_name=_("Produto (Pré-Pronto) Contado")
-    )
-    
-    # Campo Cego: O valor contado em campo, sem consultar o saldo atual
-    quantidade_contada = models.DecimalField(
-        max_digits=15,
-        decimal_places=3,
-        verbose_name=_("Quantidade Contada em Campo")
-    )
-    
-    # Campo para armazenar o saldo do sistema no momento da contagem (para cálculo da diferença)
-    quantidade_sistema = models.DecimalField(
-        max_digits=15, decimal_places=3, default=Decimal('0.000'), editable=False,
-        verbose_name=_("Quantidade no Sistema"),
-        help_text=_("Saldo do produto no momento em que a auditoria foi iniciada.")
-    )
-    
-    observacoes = models.TextField(blank=True, null=True, verbose_name=_("Observações do Auditor"))
-    
-    # Campo para vincular ao movimento de ajuste (entrada ou saída) que esta auditoria gerou
-    movimento_ajuste = models.OneToOneField(
-        'MovimentoEstoque',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='auditoria_pre_pronto_origem',
-        verbose_name=_("Movimento de Ajuste Gerado")
-    )
-    
-    class Meta:
-        verbose_name = _("Auditoria de Estoque (Pré-Prontos)")
-        verbose_name_plural = _("Auditorias de Estoque (Pré-Prontos)")
-        ordering = ['-data_auditoria']
-        
-    def __str__(self):
-        return f"Audit PP #{self.pk} - {self.produto.nome} ({self.get_status_display()})"
-
-
-# ====================================================================
-# MODELO: CONTAGEM DIÁRIA FLV
-# ====================================================================
-class ContagemDiariaFLV(models.Model):
-    """
-    Modelo para registro rápido de contagem de itens de alta rotatividade (Ex: FLV).
-    Simples, projetado para uso móvel/tablet na cozinha.
-    Gera um movimento de ajuste ao ser concluída.
-    """
-    data_contagem = models.DateTimeField(auto_now_add=True, verbose_name=_("Data da Contagem"))
-    data_conclusao = models.DateTimeField(null=True, blank=True, verbose_name=_("Data de Conclusão"))
-    
-    status = models.CharField(
-        max_length=10,
-        choices=STATUS_AUDITORIA, # Reutiliza os status de Auditoria
-        default='PENDENTE',
-        verbose_name=_("Status da Contagem")
-    )
-    
-    # Rastreabilidade do Usuário (Nomenclatura Padrão 'responsavel')
-    responsavel = models.ForeignKey(
-        Usuario,
-        on_delete=models.PROTECT,
-        related_name='contagens_flv_realizadas',
-        verbose_name=_("Responsável pela Contagem")
-    )
-    
-    # Produto: Permite todos os produtos, mas deve ser usado para itens FLV
-    produto = models.ForeignKey(
-        Produto,
-        on_delete=models.PROTECT,
-        verbose_name=_("Produto Contado (FLV)")
-    )
-    
-    # Campo Cego
-    quantidade_contada = models.DecimalField(
-        max_digits=15,
-        decimal_places=3,
-        verbose_name=_("Quantidade Contada em Campo")
-    )
-    
-    # Campo para armazenar o saldo do sistema no momento da contagem (para cálculo da diferença)
-    quantidade_sistema = models.DecimalField(
-        max_digits=15, decimal_places=3, default=Decimal('0.000'), editable=False,
-        verbose_name=_("Quantidade no Sistema"),
-        help_text=_("Saldo do produto no momento em que a contagem foi iniciada.")
-    )
-    
-    observacoes = models.TextField(blank=True, null=True, verbose_name=_("Observações da Contagem"))
-    
-    # Campo para vincular ao movimento de ajuste (entrada ou saída) que esta contagem gerou
-    movimento_ajuste = models.OneToOneField(
-        'MovimentoEstoque',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='contagem_flv_origem', # Nomenclatura Padrão de Integração
-        verbose_name=_("Movimento de Ajuste Gerado")
-    )
-
-    class Meta:
-        verbose_name = _("Contagem Diária (FLV)")
-        verbose_name_plural = _("Contagens Diárias (FLV)")
-        ordering = ['-data_contagem']
-        
-    def __str__(self):
-        return f"Contagem FLV #{self.pk} - {self.produto.nome} ({self.get_status_display()})"
-
+        return f"CMP: {self.custo_medio_ponderado} | Saldo: {self.quantidade_atual} ({self.produto.nome})"
 
 class MovimentoEstoque(models.Model):
     """
-    Cabeçalho do movimento de estoque, registrando a entrada ou saída.
-    Permite rastreabilidade da origem (Venda, Compra, Produção, Ajuste).
+    Documento mestre que agrupa as entradas e saídas de estoque.
     """
-    data_movimento = models.DateTimeField(auto_now_add=True)
-    tipo_movimento = models.CharField(max_length=50, choices=TIPOS_MOVIMENTO, verbose_name=_("Tipo de Movimento"))
-    observacoes = models.TextField(blank=True, null=True, verbose_name=_("Observações"))
-
-    # PENDÊNCIA RESOLVIDA: Rastreabilidade do Usuário que executou o movimento
+    tipo_movimento = models.CharField(
+        max_length=50,
+        choices=TIPOS_MOVIMENTO,
+        verbose_name=_("Tipo de Movimento")
+    )
+    data_movimento = models.DateTimeField(auto_now_add=True, verbose_name=_("Data do Movimento"))
     responsavel = models.ForeignKey(
-        Usuario,
+        Usuario, # Usa o modelo customizado (ou settings.AUTH_USER_MODEL)
         on_delete=models.PROTECT,
-        related_name='movimentos_estoque_gerados',
-        verbose_name=_("Responsável pelo Registro"),
-        help_text=_("Usuário que disparou este movimento (via API, Admin ou Sistema).")
+        verbose_name=_("Responsável")
     )
+    observacoes = models.TextField(blank=True, verbose_name=_("Observações"))
 
-    # --- Rastreabilidade ---
-
-    # Rastreabilidade com Vendas
-    venda = models.ForeignKey(
-        'vendas.Venda',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        verbose_name=_("Venda de Origem"),
-        help_text=_("Vínculo com o pedido de venda que gerou esta saída (se aplicável).")
-    )
-    # Rastreabilidade com Compras
+    # Rastreabilidade (Foreign Keys para documentos de origem)
+    # Por exemplo: PedidoCompra, NotaFiscal, OrdemProducao, Venda
+    
+    # Campo para Compra
     pedido_compra = models.ForeignKey(
         'compras.PedidoCompra',
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True, blank=True,
-        verbose_name=_("Pedido de Compra de Origem"),
-        help_text=_("Vínculo com o pedido de compra que gerou esta entrada (se aplicável).")
-    )
-    # Rastreabilidade com Fornecedor/Cliente
-    fornecedor = models.ForeignKey(
-        Fornecedor,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        verbose_name=_("Fornecedor (Se Compra)")
-    )
-    cliente = models.ForeignKey(
-        Cliente,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        verbose_name=_("Cliente (Se Venda)")
+        verbose_name=_("Pedido de Compra de Origem")
     )
     
-    # Rastreabilidade com Auditoria e Requisição estão nos modelos de origem (OneToOneField)
-
+    # Campo para Venda (Comanda)
+    comanda = models.ForeignKey(
+        'vendas.Comanda',
+        on_delete=models.PROTECT,
+        null=True, blank=True,
+        verbose_name=_("Comanda (Venda) de Origem")
+    )
+    
+    # Campo para Produção
+    ordem_producao = models.ForeignKey(
+        'producao.OrdemProducao',
+        on_delete=models.PROTECT,
+        null=True, blank=True,
+        verbose_name=_("Ordem de Produção de Origem")
+    )
+    
+    # Campos para Auditoria/Ajuste (Serão ligados pelo signal do app auditoria/estoque)
+    # motion_ajuste (FK) será ligado aqui no signal
+    
     class Meta:
         verbose_name = _("Movimento de Estoque")
         verbose_name_plural = _("Movimentos de Estoque")
-        ordering = ['-data_movimento']
 
     def __str__(self):
-        return f"{self.get_tipo_movimento_display()} em {self.data_movimento.strftime('%d/%m/%Y %H:%M')}"
-
+        return f"Movimento {self.pk} - {self.get_tipo_movimento_display()} em {self.data_movimento.strftime('%d/%m/%Y %H:%M')}"
 
 class ItemMovimentoEstoque(models.Model):
     """
-    Detalhe do movimento, registrando a quantidade de cada Produto movimentado.
+    Detalha um item em um MovimentoEstoque, registrando a quantidade de cada Produto movimentado.
     Este modelo dispara o signal que atualiza o saldo do Produto.
     """
     movimento = models.ForeignKey(
@@ -575,18 +253,265 @@ class ItemMovimentoEstoque(models.Model):
         help_text=_("Preço/Custo usado para valorização do estoque no momento do movimento.")
     )
     
-    # 🚨 CORREÇÃO CRÍTICA R1: CAMPO SOFT-DELETE IMPLEMENTADO
+    # 🚨 CORREÇÃO CRÍTICA R2: CAMPO DE RASTREABILIDADE DE ESTORNO
+    # Permite que um item de estorno (ENTRADA) aponte para o item original (SAÍDA)
+    item_origem_estorno = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='itens_estorno_reverso',
+        verbose_name=_("Item Original (em caso de estorno)"),
+        help_text=_("Se este item é uma reversão (ex: ENTRADA por cancelamento), aponta para o ItemMovimentoEstoque original que foi estornado.")
+    )
+
+    # 🚨 CAMPO SOFT-DELETE PARA O ITEM ORIGINAL
     is_estornado = models.BooleanField(
         default=False,
-        verbose_name=_("Estornado"),
-        help_text=_("Se 'True', o item foi logicamente estornado e deve ser ignorado no cálculo do CMP e do Saldo.")
+        verbose_name=_("Item Estornado"),
+        help_text=_("Se 'True', o item foi logicamente estornado e deve ser ignorado no cálculo do CMP e do Saldo. O item reverso deve ser criado com item_origem_estorno preenchido.")
     )
 
 
     class Meta:
         verbose_name = _("Item de Movimento de Estoque")
         verbose_name_plural = _("Itens de Movimento de Estoque")
-        unique_together = ('movimento', 'produto')
+        # UNIQUE_TOGETHER: NÃO pode haver dois itens de estorno apontando para a mesma origem
+        constraints = [
+            # Garante que NENHUM item de movimento (o item de reversão) aponte duas vezes para a mesma origem
+            UniqueConstraint(fields=['item_origem_estorno'], name='unique_estorno_reverso')
+        ]
+        
+    def clean(self):
+        """Validação de Integridade de Estorno"""
+        if self.item_origem_estorno and self.is_estornado:
+            # Um item não pode ser estornado E ser a origem de um estorno simultaneamente.
+            # is_estornado = True deve ser para o item original que foi revertido.
+            # O item que reverte (o estorno reverso) deve ter is_estornado = False.
+            raise ValidationError(
+                _("Um Item de Movimento que é uma reversão não deve ser marcado como 'Estornado' (is_estornado=True).")
+            )
+            
+        if self.item_origem_estorno:
+            # Garante que o item original foi marcado como estornado (soft-delete)
+            if not self.item_origem_estorno.is_estornado:
+                raise ValidationError(
+                    _("O Item de Movimento Original (item_origem_estorno) deve estar marcado como estornado (is_estornado=True).")
+                )
+
+
+# =========================================================
+# MODELOS DE REQUISIÇÃO (Para Produção e Venda)
+# =========================================================
+
+class RequisicaoEstoque(models.Model):
+    """
+    Representa o pedido de insumos/produtos do estoque para uso em Venda ou Produção.
+    """
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_REQUISICAO,
+        default='PENDENTE',
+        verbose_name=_("Status da Requisição")
+    )
+    data_requisicao = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=_("Data da Requisição")
+    )
+    responsavel = models.ForeignKey(
+        Usuario, 
+        on_delete=models.PROTECT,
+        verbose_name=_("Responsável")
+    )
+    
+    # Campo de rastreabilidade (será preenchido pelo signal)
+    movimento_saida_estoque = models.ForeignKey(
+        MovimentoEstoque,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='requisicoes_estoque',
+        verbose_name=_("Movimento de Saída de Estoque")
+    )
+
+    class Meta:
+        verbose_name = _("Requisição de Estoque")
+        verbose_name_plural = _("Requisições de Estoque")
 
     def __str__(self):
-        return f"{self.produto.nome} ({self.quantidade_movimentada} {self.produto.unidade_medida.sigla})"
+        return f"Requisição N° {self.pk} ({self.get_status_display()})"
+
+
+class ItemRequisicaoEstoque(models.Model):
+    """
+    Detalhe dos itens solicitados em uma Requisição de Estoque.
+    """
+    requisicao = models.ForeignKey(
+        RequisicaoEstoque,
+        on_delete=models.CASCADE,
+        related_name='itens_requisicao',
+        verbose_name=_("Requisição de Estoque")
+    )
+    produto = models.ForeignKey(
+        Produto,
+        on_delete=models.PROTECT,
+        verbose_name=_("Produto Solicitado")
+    )
+    
+    quantidade_solicitada = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        verbose_name=_("Quantidade Solicitada")
+    )
+    
+    quantidade_atendida = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name=_("Quantidade Atendida")
+    )
+
+    class Meta:
+        verbose_name = _("Item de Requisição de Estoque")
+        verbose_name_plural = _("Itens de Requisição de Estoque")
+        
+    def clean(self):
+        if self.quantidade_atendida > self.quantidade_solicitada:
+            raise ValidationError(_('A quantidade atendida não pode ser maior que a quantidade solicitada.'))
+
+
+# =========================================================
+# MODELOS DE AUDITORIA E CONTAGEM
+# (Modelos que geram Ajuste de Estoque)
+# =========================================================
+
+class AuditoriaInventario(models.Model):
+    """
+    Contagem de estoque para produtos não-FLV (Geral).
+    """
+    produto = models.ForeignKey(
+        Produto,
+        on_delete=models.PROTECT,
+        verbose_name=_("Produto")
+    )
+    data_auditoria = models.DateField(verbose_name=_("Data da Auditoria"))
+    responsavel = models.ForeignKey(
+        Usuario, 
+        on_delete=models.PROTECT,
+        verbose_name=_("Responsável pela Contagem")
+    )
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_AUDITORIA,
+        default='PENDENTE',
+        verbose_name=_("Status")
+    )
+    
+    # Valores de contagem e diferença (serão preenchidos por view/signal)
+    quantidade_contada = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_("Quantidade Contada"))
+    quantidade_sistema = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, verbose_name=_("Quantidade do Sistema"))
+    
+    # Campo de rastreabilidade do Movimento de Ajuste (preenchido pelo signal)
+    movimento_ajuste = models.ForeignKey(
+        MovimentoEstoque,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='auditorias_inventario',
+        verbose_name=_("Movimento de Ajuste Gerado")
+    )
+
+    class Meta:
+        verbose_name = _("Auditoria de Inventário")
+        verbose_name_plural = _("Auditorias de Inventário")
+        # UNIQUE_TOGETHER: Garante apenas uma contagem por produto/dia
+        unique_together = ('produto', 'data_auditoria')
+    
+    def __str__(self):
+        return f"Auditoria de {self.produto.nome} em {self.data_auditoria}"
+
+
+class AuditoriaPrePronto(models.Model):
+    """
+    Contagem de estoque para produtos pré-prontos (semi-acabados).
+    """
+    produto = models.ForeignKey(
+        Produto,
+        on_delete=models.PROTECT,
+        limit_choices_to={'is_pre_pronto': True}, # Apenas produtos marcados como pré-prontos
+        verbose_name=_("Produto Pré-Pronto")
+    )
+    data_auditoria = models.DateField(verbose_name=_("Data da Auditoria"))
+    responsavel = models.ForeignKey(
+        Usuario, 
+        on_delete=models.PROTECT,
+        verbose_name=_("Responsável pela Contagem")
+    )
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_AUDITORIA,
+        default='PENDENTE',
+        verbose_name=_("Status")
+    )
+    
+    # Valores de contagem e diferença
+    quantidade_contada = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_("Quantidade Contada"))
+    quantidade_sistema = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, verbose_name=_("Quantidade do Sistema"))
+    
+    # Campo de rastreabilidade
+    movimento_ajuste = models.ForeignKey(
+        MovimentoEstoque,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='auditorias_pre_pronto',
+        verbose_name=_("Movimento de Ajuste Gerado")
+    )
+
+    class Meta:
+        verbose_name = _("Auditoria de Pré-Pronto")
+        verbose_name_plural = _("Auditorias de Pré-Pronto")
+        unique_together = ('produto', 'data_auditoria')
+        
+    def __str__(self):
+        return f"Auditoria de Pré-Pronto: {self.produto.nome} em {self.data_auditoria}"
+
+
+class ContagemDiariaFLV(models.Model):
+    """
+    Contagem simplificada para perecíveis (Frutas, Legumes e Verduras)
+    """
+    produto = models.ForeignKey(
+        Produto,
+        on_delete=models.PROTECT,
+        verbose_name=_("Produto FLV")
+    )
+    data_contagem = models.DateField(verbose_name=_("Data da Contagem"))
+    responsavel = models.ForeignKey(
+        Usuario, 
+        on_delete=models.PROTECT,
+        verbose_name=_("Responsável pela Contagem")
+    )
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_AUDITORIA,
+        default='PENDENTE',
+        verbose_name=_("Status")
+    )
+    
+    # Valores de contagem e diferença
+    quantidade_contada = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_("Quantidade Contada"))
+    quantidade_sistema = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, verbose_name=_("Quantidade do Sistema"))
+    
+    # Campo de rastreabilidade
+    movimento_ajuste = models.ForeignKey(
+        MovimentoEstoque,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='contagens_flv',
+        verbose_name=_("Movimento de Ajuste Gerado")
+    )
+
+    class Meta:
+        verbose_name = _("Contagem Diária FLV")
+        verbose_name_plural = _("Contagens Diárias FLV")
+        unique_together = ('produto', 'data_contagem')
+
+    def __str__(self):
+        return f"Contagem FLV: {self.produto.nome} em {self.data_contagem}"
