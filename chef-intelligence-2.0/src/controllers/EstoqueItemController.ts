@@ -1,180 +1,210 @@
-// src/controllers/EstoqueItemController.ts (CORRIGIDO: Nomenclatura)
+// src/controllers/EstoqueItemController.ts (CORRIGIDO)
 
 import { Request, Response } from "express";
+import { z } from "zod";
 import { EstoqueItemService } from "../services/EstoqueItemService";
-import { connection } from "../config/sequelize";
-import { Sequelize } from "sequelize";
+import { connection } from "../config/sequelize"; // 🔑 Importado para gerenciar a transação
 
-// Tipagem para Recebimento (Entrada de Estoque)
-interface ReceberEstoqueBody {
-  // id_produto será lido do req.params.id
-  quantidade: number;
-  custo_unitario: number;
-  colaborador_id: number;
-  tipo_movimento: "COMPRA" | "AJUSTE_ENTRADA";
-  referencia_origem: string;
-}
+// Esquemas de validação Zod
+const itemEstoqueSchema = z.object({
+  nome: z.string().min(3, "O nome deve ter pelo menos 3 caracteres."),
+  unidade_medida: z
+    .string()
+    .length(3, "A unidade de medida deve ter 3 caracteres (ex: 'KG', 'UN')."),
+  estoque_minimo: z
+    .number()
+    .nonnegative("Estoque mínimo deve ser não negativo."),
+  preco_custo_unitario: z
+    .number()
+    .nonnegative("Preço de custo deve ser não negativo.")
+    .optional(),
+});
 
-// Tipagem para Saída de Estoque (Baixa)
-interface SaidaEstoqueBody {
-  // id_produto será lido do req.params.id
-  quantidade: number;
-  colaborador_id: number;
-  tipo_movimento: "VENDA" | "PRODUCAO" | "PERDA" | "AJUSTE_SAIDA";
-  referencia_origem: string;
-}
+const receberEstoqueSchema = z.object({
+  id_produto: z.number().int().positive(),
+  quantidade: z.number().positive("A quantidade deve ser positiva."),
+  preco_custo_unitario: z
+    .number()
+    .positive("O preço de custo unitário deve ser positivo."),
+  descricao: z
+    .string()
+    .min(5, "A descrição do recebimento deve ser detalhada."),
+  referencia: z
+    .string()
+    .min(5, "A referência do documento deve ser fornecida."),
+});
 
-// Tipagem básica para o corpo do Item de Estoque (Criação/Atualização)
-interface ItemEstoqueBody {
-  nome: string; // CORREÇÃO: Usando 'nome' (Model: ItemEstoque)
-  unidade_medida: string;
-  is_vendavel: boolean;
-  is_pre_pronto: boolean;
-  id_unidade: number; // Assumindo que 'id_unidade' existe
-  [key: string]: any;
-}
+const saidaEstoqueSchema = z.object({
+  id_produto: z.number().int().positive(),
+  quantidade: z.number().positive("A quantidade de saída deve ser positiva."),
+  descricao: z.string().min(5, "A descrição da saída deve ser detalhada."),
+  referencia: z
+    .string()
+    .min(5, "A referência do documento deve ser fornecida."),
+});
 
 class EstoqueItemController {
   private service: EstoqueItemService;
-  private sequelize: Sequelize;
 
   constructor() {
-    this.sequelize = connection;
-    this.service = new EstoqueItemService(this.sequelize);
-  } // --- 1. CRUD Métodos Padrão ---
+    this.service = new EstoqueItemService(connection as any);
+  }
 
-  public async store(req: Request, res: Response): Promise<Response> {
+  /**
+   * 🔑 CRIAÇÃO (store) - Corrigindo TS2339 (create)
+   */
+  async store(req: Request, res: Response): Promise<Response> {
     try {
-      // Usa o método 'create' do service
-      const produto = await this.service.create(req.body);
-      return res
-        .status(201)
-        .json({ message: "Item criado com sucesso.", data: produto });
-    } catch (error: any) {
-      console.error("Erro ao criar item:", error.message);
-      return res.status(500).json({ error: error.message });
+      const data = itemEstoqueSchema.parse(req.body);
+      // ✅ Chamada do método 'create'
+      const produto = await this.service.create(data as any);
+      return res.status(201).json(produto);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ error: "Dados inválidos.", details: error.issues });
+      }
+      return res.status(500).json({
+        error: "Erro ao criar Item de Estoque.",
+        details: (error as Error).message,
+      });
     }
   }
 
-  public async index(req: Request, res: Response): Promise<Response> {
+  /**
+   * 🔑 LEITURA (index) - Corrigindo TS2339 (findAll)
+   */
+  async index(req: Request, res: Response): Promise<Response> {
     try {
+      // ✅ Chamada do método 'findAll'
       const produtos = await this.service.findAll();
       return res.status(200).json(produtos);
-    } catch (error: any) {
-      console.error("Erro ao listar itens:", error.message);
+    } catch (error) {
       return res
         .status(500)
-        .json({ error: "Falha ao listar itens de estoque." });
+        .json({ error: "Erro ao listar Itens de Estoque." });
     }
   }
 
-  public async show(req: Request, res: Response): Promise<Response> {
-    const id_produto = parseInt(req.params.id); // 'id' é o parâmetro na rota
+  /**
+   * 🔑 LEITURA POR ID (show) - Corrigindo TS2339 (findById)
+   */
+  async show(req: Request, res: Response): Promise<Response> {
+    const id_produto = parseInt(req.params.id_produto, 10);
     if (isNaN(id_produto))
       return res.status(400).json({ error: "ID inválido." });
 
     try {
+      // ✅ Chamada do método 'findById'
       const produto = await this.service.findById(id_produto);
       if (!produto) {
-        return res.status(404).json({ error: "Item não encontrado." });
+        return res.status(404).json({ error: "Produto não encontrado." });
       }
       return res.status(200).json(produto);
-    } catch (error: any) {
-      console.error(`Erro ao buscar item ${id_produto}:`, error.message);
-      return res.status(500).json({ error: "Falha ao buscar item." });
+    } catch (error) {
+      return res.status(500).json({ error: "Erro ao buscar Item de Estoque." });
     }
   }
 
-  public async update(req: Request, res: Response): Promise<Response> {
-    const id_produto = parseInt(req.params.id); // 'id' é o parâmetro na rota
+  /**
+   * 🔑 ATUALIZAÇÃO (update) - Corrigindo TS2339 (update)
+   */
+  async update(req: Request, res: Response): Promise<Response> {
+    const id_produto = parseInt(req.params.id_produto, 10);
     if (isNaN(id_produto))
       return res.status(400).json({ error: "ID inválido." });
 
-    const updates: Partial<ItemEstoqueBody> = req.body;
-
     try {
-      const produtoAtualizado = await this.service.update(id_produto, updates);
+      const updates = itemEstoqueSchema.partial().parse(req.body);
 
-      return res.status(200).json({
-        message: "Item atualizado com sucesso.",
-        data: produtoAtualizado,
-      });
-    } catch (error: any) {
-      console.error(`Erro ao atualizar item ${id_produto}:`, error.message);
-      return res.status(500).json({ error: error.message });
-    }
-  } // --- 2. Lógica de Movimentação de Estoque ---
+      // ✅ Chamada do método 'update'
+      const produtoAtualizado = await this.service.update(
+        id_produto,
+        updates as any
+      );
 
-  public async receberEstoque(req: Request, res: Response): Promise<Response> {
-    const id_produto = parseInt(req.params.id); // ID do Path
-    if (isNaN(id_produto))
-      return res.status(400).json({ error: "ID do item inválido na rota." });
-
-    const body: ReceberEstoqueBody = req.body;
-
-    const dataParaService = { ...body, id_produto };
-
-    if (
-      !dataParaService.id_produto ||
-      !dataParaService.quantidade ||
-      !dataParaService.custo_unitario ||
-      !dataParaService.colaborador_id ||
-      !dataParaService.tipo_movimento ||
-      !dataParaService.referencia_origem
-    ) {
-      return res.status(400).json({
-        error:
-          "Campos obrigatórios faltando: quantidade, custo_unitario, colaborador_id, tipo_movimento ou referencia_origem.",
-      });
-    }
-
-    try {
-      const itemAtualizado = await this.service.receberEstoque(dataParaService);
-      return res.status(200).json({
-        message:
-          "Entrada de estoque registrada com sucesso. Saldo e CMP atualizados.",
-        data: itemAtualizado,
-      });
-    } catch (error: any) {
-      console.error("Erro ao registrar entrada de estoque:", error.message);
-      return res.status(500).json({ error: error.message });
+      return res.status(200).json(produtoAtualizado);
+    } catch (error) {
+      return res
+        .status(500)
+        .json({ error: "Erro ao atualizar Item de Estoque." });
     }
   }
 
-  public async saidaEstoque(req: Request, res: Response): Promise<Response> {
-    const id_produto = parseInt(req.params.id); // ID do Path
-    if (isNaN(id_produto))
-      return res.status(400).json({ error: "ID do item inválido na rota." });
-    const body: SaidaEstoqueBody = req.body;
+  /**
+   * 🔑 ENTRADA/RECEBIMENTO - Corrigindo TS2554 (receberEstoque)
+   */
+  async receberEstoque(req: Request, res: Response): Promise<Response> {
+    const transaction = await connection.transaction(); // 🔑 Inicia a transação
+    try {
+      const data = receberEstoqueSchema.parse(req.body);
 
-    const dataParaService = { ...body, id_produto };
+      // Busca o modelo do produto (pois o service precisa dele)
+      const produtoModel = await this.service.findById(data.id_produto);
+      if (!produtoModel) throw new Error("Produto não encontrado.");
 
-    if (
-      !dataParaService.id_produto ||
-      !dataParaService.quantidade ||
-      !dataParaService.colaborador_id ||
-      !dataParaService.tipo_movimento ||
-      !dataParaService.referencia_origem
-    ) {
-      return res.status(400).json({
-        error:
-          "Campos obrigatórios faltando: quantidade, colaborador_id, tipo_movimento ou referencia_origem.",
+      const dataParaService = {
+        produto: produtoModel,
+        quantidade: data.quantidade,
+        preco_custo_unitario: data.preco_custo_unitario,
+        descricao: data.descricao,
+        referencia: data.referencia,
+      };
+
+      // ✅ CORREÇÃO DO ERRO 2554: Passa os 2 argumentos (data + transaction)
+      await this.service.receberEstoque(dataParaService as any, transaction);
+
+      await transaction.commit(); // Confirma a transação
+      return res
+        .status(200)
+        .json({ message: "Estoque recebido com sucesso e CMP atualizado." });
+    } catch (error) {
+      await transaction.rollback(); // Desfaz em caso de erro
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ error: "Dados inválidos.", details: error.issues });
+      }
+      return res.status(500).json({
+        error: "Erro ao processar recebimento de estoque.",
+        details: (error as Error).message,
       });
     }
+  }
 
+  /**
+   * 🔑 SAÍDA (saidaEstoque) - Corrigindo TS2339 (saidaEstoque)
+   */
+  async saidaEstoque(req: Request, res: Response): Promise<Response> {
+    const transaction = await connection.transaction(); // 🔑 Inicia a transação
     try {
+      const data = saidaEstoqueSchema.parse(req.body);
+
+      // ✅ Chamada do método 'saidaEstoque' e passa os 2 argumentos (data + transaction)
       const { produto, custo_saida } = await this.service.saidaEstoque(
-        dataParaService
+        data,
+        transaction
       );
 
+      await transaction.commit(); // Confirma a transação
       return res.status(200).json({
-        message: `Saída de estoque registrada com sucesso. Custo de Saída (CMV): R$ ${custo_saida}`,
-        data: produto,
-        custo_saida_calculado: custo_saida,
+        message: "Saída de estoque registrada com sucesso.",
+        id_produto: produto.id_produto,
+        estoque_atual: produto.estoque_atual,
+        custo_total: custo_saida,
       });
-    } catch (error: any) {
-      console.error("Erro ao registrar saída de estoque:", error.message);
-      return res.status(500).json({ error: error.message });
+    } catch (error) {
+      await transaction.rollback(); // Desfaz em caso de erro
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ error: "Dados inválidos.", details: error.issues });
+      }
+      return res.status(500).json({
+        error: "Erro ao processar saída de estoque.",
+        details: (error as Error).message,
+      });
     }
   }
 }
