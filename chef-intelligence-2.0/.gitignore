@@ -1,0 +1,19 @@
+# Dependências e Builds
+node_modules/
+dist/
+build/
+coverage/
+.github/
+docs/
+
+# Logs e Cache
+*.log
+npm-debug.log*
+.eslintcache
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# VS Code (Configurações locais)
+.vscode/
