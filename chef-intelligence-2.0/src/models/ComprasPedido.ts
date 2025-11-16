@@ -1,25 +1,20 @@
 // src/models/ComprasPedido.ts
 
-import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
 import { connection } from "../config/sequelize";
-import { IModelFactory } from "../config/types";
-import { FornecedorModel } from "./Fornecedor";
-import { ComprasItemPedidoModel } from "./ComprasItemPedido"; // ✅ Import resolvido
 
-export type StatusAprovacao =
-  | "SUGERIDO"
-  | "EM_COTACAO"
-  | "APROVADO"
-  | "REPROVADO"
-  | "CANCELADO"
-  | "FINALIZADO";
+import { IModelFactory, StatusAprovacaoCompras } from "../config/types";
+import Fornecedor from "./Fornecedor"; // Importa o VALOR padrão do modelo
+import { ComprasItemPedidoModel } from "./ComprasItemPedido";
+import { ColaboradorModel } from "./Colaborador";
 
+// 1. Definição das Interfaces
 export interface ComprasPedidoAttributes {
   id_pedido: number;
   id_fornecedor: number;
   colaborador_id_sugestao: number;
   colaborador_id_aprovacao: number | null;
-  status_aprovacao: StatusAprovacao;
+  status_aprovacao: StatusAprovacaoCompras;
   data_aprovacao: Date | null;
   data_entrega_prevista: Date | null;
   valor_total_previsto: number;
@@ -29,92 +24,115 @@ export interface ComprasPedidoCreationAttributes
   extends Optional<
     ComprasPedidoAttributes,
     | "id_pedido"
-    | "colaborador_id_aprovacao"
     | "status_aprovacao"
+    | "colaborador_id_aprovacao"
     | "data_aprovacao"
     | "data_entrega_prevista"
+    | "valor_total_previsto"
   > {}
 
 export interface ComprasPedidoModel
   extends Model<ComprasPedidoAttributes, ComprasPedidoCreationAttributes>,
     ComprasPedidoAttributes {
-  fornecedor?: FornecedorModel;
+  // ✅ CORREÇÃO TS2749: Tipagem de associação para o modelo Sequelize (o valor)
+  fornecedor?: typeof Fornecedor;
+  sugeridoPor?: ColaboradorModel;
+  aprovadoPor?: ColaboradorModel;
   itens?: ComprasItemPedidoModel[];
-  readonly createdAt?: Date;
-  readonly updatedAt?: Date;
 }
 
-const ComprasPedido: ModelCtor<ComprasPedidoModel> =
-  connection.define<ComprasPedidoModel>(
-    "ComprasPedido",
-    {
-      id_pedido: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true,
-      },
-      id_fornecedor: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-          model: "FORNECEDORES",
-          key: "id_fornecedor",
-        },
-      },
-      colaborador_id_sugestao: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
-      colaborador_id_aprovacao: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-      },
-      status_aprovacao: {
-        type: DataTypes.STRING(20),
-        allowNull: false,
-        defaultValue: "SUGERIDO",
-      },
-      data_aprovacao: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
-      data_entrega_prevista: {
-        type: DataTypes.DATEONLY,
-        allowNull: true,
-      },
-      valor_total_previsto: {
-        type: DataTypes.DECIMAL(10, 2),
-        allowNull: false,
-        defaultValue: 0.0,
-        get() {
-          return parseFloat(
-            this.getDataValue("valor_total_previsto") as unknown as string
-          );
-        },
+// 2. Definição do Modelo
+const ComprasPedido: ModelCtor<ComprasPedidoModel> = connection.define<
+  ComprasPedidoModel,
+  ComprasPedidoCreationAttributes
+>(
+  "ComprasPedido",
+  {
+    id_pedido: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    id_fornecedor: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    colaborador_id_sugestao: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    colaborador_id_aprovacao: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    status_aprovacao: {
+      // ✅ CORREÇÃO TS2345: Usa as literais de string diretamente
+      type: DataTypes.ENUM(
+        "SUGERIDO",
+        "EM_COTACAO",
+        "APROVADO",
+        "REPROVADO",
+        "CANCELADO",
+        "FINALIZADO"
+      ),
+      allowNull: false,
+      defaultValue: "SUGERIDO",
+    },
+    data_aprovacao: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    data_entrega_prevista: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    valor_total_previsto: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0.0,
+      get() {
+        return parseFloat(
+          this.getDataValue("valor_total_previsto") as unknown as string
+        );
       },
     },
-    {
-      tableName: "PEDIDOS_COMPRA",
-      sequelize: connection,
-      timestamps: true,
-      modelName: "ComprasPedido",
-    } as any // 🔑 CAST EXPLÍCITO para resolver o ERRO 2353
-  );
+  },
+  // 3. Uso de ModelOptions (resolve TS2353)
+  {
+    tableName: "PEDIDOS_COMPRA",
+    sequelize: connection,
+    timestamps: true,
+    modelName: "ComprasPedido",
+  } as ModelOptions<ComprasPedidoModel>
+);
 
+// Associações
 (ComprasPedido as any).associate = function (models: IModelFactory) {
-  ComprasPedido.belongsTo(models.Fornecedor as ModelCtor<FornecedorModel>, {
-    foreignKey: "id_fornecedor",
-    as: "fornecedor",
-  });
-
-  ComprasPedido.hasMany(
-    models.ComprasItemPedido as ModelCtor<ComprasItemPedidoModel>,
-    {
+  if (models.Fornecedor) {
+    ComprasPedido.belongsTo(models.Fornecedor, {
+      foreignKey: "id_fornecedor",
+      as: "fornecedor",
+    });
+  }
+  if (models.Colaborador) {
+    ComprasPedido.belongsTo(models.Colaborador, {
+      foreignKey: "colaborador_id_sugestao",
+      as: "sugeridoPor",
+    });
+    ComprasPedido.belongsTo(models.Colaborador, {
+      foreignKey: "colaborador_id_aprovacao",
+      as: "aprovadoPor",
+    });
+  }
+  if (models.ComprasItemPedido) {
+    ComprasPedido.hasMany(models.ComprasItemPedido, {
       foreignKey: "id_pedido",
       as: "itens",
-    }
-  );
+    });
+  }
 };
 
 export default ComprasPedido;
+
+// Interfaces são exportadas na definição (export interface...), resolvendo TS2484

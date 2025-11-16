@@ -3,9 +3,9 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { ComprasPedidoService } from "../services/ComprasPedidoService"; // ✅ Import resolvido
-import { StatusAprovacao } from "../models/ComprasPedido"; // ✅ Import resolvido
+//import { StatusAprovacao } from "../models/ComprasPedido"; // ✅ Import resolvido
 import { StatusQualidade } from "../models/ComprasItemPedido"; // ✅ Import resolvido
-
+import { StatusAprovacaoCompras } from "../config/types";
 // R9: Esquemas de validação Zod
 const recebimentoSchema = z.object({
   numero_documento: z.string().min(5),

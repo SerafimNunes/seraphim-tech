@@ -35,8 +35,16 @@ import RegistroFiscal from "./models/RegistroFiscal";
 
 // 5. MÓDULO DE COMPRAS
 import Fornecedor from "./models/Fornecedor";
-import ComprasPedido from "./models/ComprasPedido"; // ✅ Import resolvido
-import ComprasItemPedido from "./models/ComprasItemPedido"; // ✅ Import resolvido
+import ComprasPedido from "./models/ComprasPedido";
+import ComprasItemPedido from "./models/ComprasItemPedido";
+
+// 6. 👥 MÓDULO DE RECURSOS HUMANOS E ESCALAS (NOVOS MODELOS)
+import Cargo from "./models/Cargo";
+import Colaborador from "./models/Colaborador";
+
+// --- 🔑 IMPORTAÇÃO DOS SERVIÇOS (PARA INJEÇÃO DE DEPENDÊNCIA) ---
+import { EscalaService } from "./services/EscalaService";
+import { RHService } from "./services/RHService";
 
 // Importa as rotas da API
 import EstoqueContagemRoutes from "./routes/EstoqueContagemRoutes";
@@ -47,8 +55,12 @@ import ProducaoRoutes from "./routes/ProducaoRoutes";
 import VendaComandaRoutes from "./routes/VendaComandaRoutes";
 import FiscalRoutes from "./routes/FiscalRoutes";
 
-// 🔑 ROTAS DE COMPRAS
-import ComprasPedidoRoutes from "./routes/ComprasPedidoRoutes"; // ✅ Import resolvido
+// ROTAS DE COMPRAS
+import ComprasPedidoRoutes from "./routes/ComprasPedidoRoutes";
+
+// 👥 ROTAS DE RECURSOS HUMANOS E ESCALAS (NOVAS ROTAS)
+// ✅ CORREÇÃO: Importamos uma função para configurar o router (factory pattern)
+import { configureRHRoutes } from "./routes/RHRoutes";
 
 // Cria a aplicação Express
 const app = express();
@@ -65,7 +77,18 @@ async function startServer() {
     // 2. Aplica as Associações
     applyAssociations(connection.models);
 
-    // 3. Registra as Rotas da API
+    // --------------------------------------------------------------------------
+    // ✅ RESOLUÇÃO DA DEPENDÊNCIA CIRCULAR E CRIAÇÃO DOS SERVIÇOS
+    // --------------------------------------------------------------------------
+    const escalaService = new EscalaService();
+    const rhService = new RHService(escalaService);
+    escalaService.setRHService(rhService);
+
+    // --------------------------------------------------------------------------
+    // 3. REGISTRA AS ROTAS DA API - COM INJEÇÃO DE DEPENDÊNCIA
+    // --------------------------------------------------------------------------
+
+    // Registros das Rotas Padrão
     app.use("/api/v1", EstoqueContagemRoutes);
     app.use("/api/v1", EstoqueMovimentoRoutes);
     app.use("/api/v1", EstoqueItemRoutes);
@@ -73,9 +96,12 @@ async function startServer() {
     app.use("/api/v1", VendaComandaRoutes);
     app.use("/api/v1", ProducaoRoutes);
     app.use("/api/v1", FiscalRoutes);
-
-    // 🔑 REGISTRO DAS ROTAS DE COMPRAS
     app.use("/api/v1", ComprasPedidoRoutes);
+
+    // 👥 REGISTRO DAS ROTAS DE RECURSOS HUMANOS
+    // ✅ Injeta os serviços criados no RHRoutes
+    const rhRouter = configureRHRoutes(rhService, escalaService);
+    app.use("/api/v1", rhRouter);
 
     // 4. Inicia o Servidor
     app.listen(port, () => {
