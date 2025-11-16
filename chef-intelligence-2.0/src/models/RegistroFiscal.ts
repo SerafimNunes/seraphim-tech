@@ -2,11 +2,16 @@
 
 import { DataTypes, Model, Optional } from "sequelize";
 import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import Unidade from "./Unidade"; // Importado diretamente
+import { ModelCtor } from "sequelize";
 
 export type TipoOrigemFiscal = "VENDA" | "COMPRA" | "TRANSFERENCIA";
 
 export interface RegistroFiscalAttributes {
   id_registro_fiscal: number;
+  unidade_id: number; //R4: Multi-Unidade
+  tipo_registro: "ENTRADA_COMPRA" | "SAIDA_VENDA" | "AJUSTE";
   id_origem: number;
   tipo_origem: TipoOrigemFiscal;
   numero_documento: string;
@@ -32,6 +37,8 @@ export class RegistroFiscal
   implements RegistroFiscalAttributes
 {
   public id_registro_fiscal!: number;
+  public unidade_id!: number;
+  public tipo_registro!: "ENTRADA_COMPRA" | "SAIDA_VENDA" | "AJUSTE";
   public id_origem!: number;
   public tipo_origem!: TipoOrigemFiscal;
   public numero_documento!: string;
@@ -41,6 +48,19 @@ export class RegistroFiscal
   public cst_cfop_padrao!: string;
   public observacoes_fisco!: string | null;
   public chave_acesso_nfe!: string | null;
+
+  /**
+   * Define as associações do modelo, essenciais para R4.
+   */
+  public static associate(models: IModelFactory) {
+    // 🔑 CORREÇÃO CRÍTICA: Usar a referência 'Unidade' importada diretamente
+    // para garantir que o belongsTo receba uma subclasse válida de Model.
+    (RegistroFiscal as any).belongsTo(Unidade as ModelCtor<Unidade>, {
+      foreignKey: "unidade_id",
+      as: "unidade",
+    });
+    // As associações polimórficas (Venda, Compra) seriam definidas aqui.
+  }
 }
 
 RegistroFiscal.init(
@@ -49,6 +69,15 @@ RegistroFiscal.init(
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
+    },
+    unidade_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: { model: "Unidades", key: "id_unidade" },
+    },
+    tipo_registro: {
+      type: DataTypes.ENUM("ENTRADA_COMPRA", "SAIDA_VENDA", "AJUSTE"),
+      allowNull: false,
     },
     id_origem: { type: DataTypes.INTEGER, allowNull: false },
     tipo_origem: { type: DataTypes.STRING(30), allowNull: false },

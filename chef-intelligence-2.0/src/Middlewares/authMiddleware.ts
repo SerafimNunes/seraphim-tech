@@ -1,4 +1,4 @@
-// src/routes/authMiddleware.ts
+// src/Middlewares/authMiddleware.ts
 
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
@@ -9,6 +9,8 @@ export interface JwtPayload {
   id_cargo: number;
   nome_cargo: string;
   unidade_id: number;
+  // 🔑 CORREÇÃO R12: Adiciona a lista de permissões
+  permissoes: string[];
 }
 
 // Estende a interface Request do Express para incluir nosso payload de usuário
@@ -51,6 +53,7 @@ export const authMiddleware = (
   }
 
   try {
+    // Agora tipado para incluir 'permissoes'
     const decoded = jwt.verify(token, secret) as JwtPayload;
 
     // Anexa os dados do usuário decodificados à requisição para uso posterior

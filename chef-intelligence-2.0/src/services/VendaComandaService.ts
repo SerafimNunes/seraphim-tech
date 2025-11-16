@@ -7,7 +7,8 @@ import VendaMesa from "../models/VendaMesa";
 import LancamentoService from "./LancamentoService";
 import Caixa from "../models/Caixa";
 
-import RegistroFiscal from "../models/RegistroFiscal"; // Assumindo que existe
+import RegistroFiscal from "../models/RegistroFiscal";
+import { RegistroFiscalAttributes } from "../models/RegistroFiscal"; // Importação para tipagem
 import Decimal from "decimal.js";
 import { connection } from "../config/sequelize";
 
@@ -44,19 +45,26 @@ export default class VendaComandaService {
         if (!mesa || mesa.status_mesa !== "LIVRE") {
           throw new Error(`Mesa ID ${id_mesa} não está livre ou não existe.`);
         }
-      } // 2. Cria a Venda/Comanda
+      }
+
+      // 2. Cria a Venda/Comanda
+      // MOCK DE SEGURANÇA: Definir unidade_id aqui é crucial para R4.
+      // Em produção, isso viria da sessão do Colaborador.
+      const unidadeIdMock = 1;
 
       const novaVenda = await VendaComanda.create(
         {
           id_mesa,
           colaborador_id_abertura,
+          // unidade_id: unidadeIdMock, // Descomente quando o modelo VendaComanda tiver este campo
           status_venda: "ABERTA",
           valor_total: 0,
           custo_total: 0,
         },
         { transaction: t }
-      ); // 3. Se for em mesa, atualiza o status da mesa
+      );
 
+      // 3. Se for em mesa, atualiza o status da mesa
       if (id_mesa) {
         await VendaMesa.update(
           {
@@ -132,8 +140,9 @@ export default class VendaComandaService {
           tipo_origem: "VENDA",
         },
         t
-      ); // 5. Libera a Mesa (se for uma venda de mesa)
+      );
 
+      // 5. Libera a Mesa (se for uma venda de mesa)
       if (venda.id_mesa) {
         await VendaMesa.update(
           {
@@ -149,11 +158,19 @@ export default class VendaComandaService {
         );
       }
 
-      // 6. Cria o Registro Fiscal (Log de Faturamento)
+      // 6. Cria o Registro Fiscal (Log de Faturamento) - CORREÇÃO CRÍTICA AQUI
       const impostoCalculado = valorTotalVenda.times(0.04).toDP(2).toNumber();
+
+      // 💡 R4: Obtém a unidade_id da venda (assumindo que o modelo VendaComanda foi atualizado)
+      const unidadeId = (venda as any).unidade_id || 1;
 
       await RegistroFiscal.create(
         {
+          // CAMPOS OBRIGATÓRIOS ADICIONADOS AO RegistroFiscal
+          unidade_id: unidadeId, // ✅ CORREÇÃO: Necessário pela R4
+          tipo_registro: "SAIDA_VENDA", // ✅ CORREÇÃO: Necessário pelo ENUM
+
+          // CAMPOS EXISTENTES
           id_origem: venda.id_venda,
           tipo_origem: "VENDA",
           numero_documento: `VENDA-${venda.id_venda}`,
@@ -162,13 +179,14 @@ export default class VendaComandaService {
           imposto_simples: impostoCalculado,
           cst_cfop_padrao: "5102",
           observacoes_fisco: `Registro Fiscal gerado na conclusão da Venda ID ${venda.id_venda}.`,
-        },
+        } as RegistroFiscalAttributes, // Cast para garantir a estrutura correta
         { transaction: t }
       );
 
       return venda.toJSON() as VendaComandaAttributes;
     });
   }
+
   public async buscarComandasAtivas(): Promise<VendaComandaAttributes[]> {
     const comandas = await VendaComanda.findAll({
       where: {
@@ -177,6 +195,7 @@ export default class VendaComandaService {
     });
     return comandas.map((c) => c.toJSON() as VendaComandaAttributes);
   }
+
   public async buscarHistoricoVendas(): Promise<VendaComandaAttributes[]> {
     const historico = await VendaComanda.findAll({
       where: {
@@ -187,6 +206,7 @@ export default class VendaComandaService {
     });
     return historico.map((c) => c.toJSON() as VendaComandaAttributes);
   }
+
   public async buscarComandaPorId(
     id_venda: number
   ): Promise<VendaComandaAttributes | null> {

@@ -1,38 +1,51 @@
-// src/routes/rbacMiddleware.ts
+// src/Middlewares/rbacMiddleware.ts
 
 import { Request, Response, NextFunction } from "express";
-import { JwtPayload } from "./authMiddleware"; // Importa a interface do authMiddleware
+// Importa a interface atualizada do authMiddleware (que agora inclui 'permissoes')
+import { JwtPayload } from "./authMiddleware";
 
 /**
- * Define os tipos de cargo para o controle de acesso (R12).
- * Ex: "Estoquista", "Gerente", "Chef"
+ * Define o tipo para as permissões (R12).
+ * Ex: "FINANCEIRO_ESCRITA", "ESTOQUE_LEITURA"
  */
-type Cargo = string;
+type Permissao = string;
 
 /**
  * Middleware de RBAC (Role-Based Access Control).
  *
- * Verifica se o usuário, já autenticado pelo `authMiddleware`,
- * tem o cargo (`nome_cargo`) necessário para acessar a rota.
- *
- * @param permissoesExigidas Lista de nomes de cargos que podem acessar a rota.
+ * Verifica se o usuário autenticado possui as permissões necessárias para a rota (R12).
+ * @param permissoesExigidas Lista de permissões que dão acesso à rota.
  */
-export const podeAcessar = (permissoesExigidas: Cargo[]) => {
+// 🔑 CORREÇÃO: Usa 'podeAcessar' para corresponder ao uso nas rotas.
+export const podeAcessar = (permissoesExigidas: Permissao[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const usuario = req.usuario;
+    // A propriedade 'usuario' é adicionada à Request pelo 'authMiddleware'
+    // O 'req.usuario' já está tipado globalmente (declare global)
+    const usuario = req.usuario as JwtPayload;
 
-    if (!usuario || !usuario.nome_cargo) {
-      return res.status(403).json({
-        error: "Acesso negado. Informações de cargo não encontradas no token.",
+    if (!usuario || !usuario.id_usuario) {
+      // Falha se o authMiddleware não funcionou ou se não há usuário
+      return res.status(401).json({
+        error: "Não autenticado. Informações de usuário não encontradas.",
       });
     }
 
-    if (permissoesExigidas.includes(usuario.nome_cargo)) {
-      return next(); // O usuário tem permissão, continua para o controller.
+    // 1. Lógica de Permissão: Verifica se alguma permissão exigida está no array do usuário
+    const usuarioTemPermissao = permissoesExigidas.some(
+      // A tipagem JwtPayload garante que 'usuario.permissoes' existe e é um array de strings
+      (p) => usuario.permissoes && usuario.permissoes.includes(p)
+    );
+
+    // 2. Assumimos que o id_cargo 99 (ADMIN) tem acesso total
+    const isAdmin = usuario.id_cargo === 99;
+
+    if (isAdmin || usuarioTemPermissao) {
+      return next(); // Permissão concedida
     }
 
+    // 3. Acesso Negado (R12)
     return res.status(403).json({
-      error: `Acesso negado. Cargo '${usuario.nome_cargo}' não tem permissão para este recurso.`,
+      error: "Acesso negado. Permissão insuficiente (R12).",
     });
   };
 };

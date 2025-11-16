@@ -3,7 +3,9 @@
 import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory } from "../config/types";
-
+import { Colaborador } from "./Colaborador";
+//import { ColaboradorModel } from "./Colaborador";
+import Permissao from "./Permissao";
 export interface CargoAttributes {
   id_cargo: number;
   nome_cargo: string;
@@ -18,7 +20,9 @@ export interface CargoCreationAttributes
 // Interface do Modelo
 export interface CargoModel
   extends Model<CargoAttributes, CargoCreationAttributes>,
-    CargoAttributes {}
+    CargoAttributes {
+  permissoes?: Permissao[]; // R12: Associação com Permissões
+}
 
 // ✅ CORREÇÃO TS2314/TS2353: Uso correto de genéricos e ModelOptions no define
 const Cargo: ModelCtor<CargoModel> = connection.define<
@@ -56,7 +60,16 @@ const Cargo: ModelCtor<CargoModel> = connection.define<
 
 // Associações (mantidas)
 (Cargo as any).associate = function (models: IModelFactory) {
-  /* ... */
+  Cargo.hasMany(models.Colaborador as ModelCtor<Colaborador>, {
+    foreignKey: "cargo_Id",
+    as: "colaboradores",
+  });
+
+  Cargo.belongsToMany(models.Permissao, {
+    through: "CargoPermissoes", //tabela pivô
+    foreignKey: "cargo_id",
+    as: "permissoes", //nome crítico: usado para busca no AuthService
+  });
 };
 
 export default Cargo;

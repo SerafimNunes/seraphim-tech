@@ -6,7 +6,7 @@ import { connection } from "../config/sequelize";
 import { IModelFactory, StatusAprovacaoCompras } from "../config/types";
 import Fornecedor from "./Fornecedor"; // Importa o VALOR padrão do modelo
 import { ComprasItemPedidoModel } from "./ComprasItemPedido";
-import { ColaboradorModel } from "./Colaborador";
+import { Colaborador } from "./Colaborador";
 
 // 1. Definição das Interfaces
 export interface ComprasPedidoAttributes {
@@ -36,8 +36,8 @@ export interface ComprasPedidoModel
     ComprasPedidoAttributes {
   // ✅ CORREÇÃO TS2749: Tipagem de associação para o modelo Sequelize (o valor)
   fornecedor?: typeof Fornecedor;
-  sugeridoPor?: ColaboradorModel;
-  aprovadoPor?: ColaboradorModel;
+  sugeridoPor?: Colaborador;
+  aprovadoPor?: Colaborador;
   itens?: ComprasItemPedidoModel[];
 }
 

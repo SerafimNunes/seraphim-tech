@@ -1,12 +1,13 @@
+// src/controllers/CaixaController.ts
+
 import { Request, Response } from "express";
 import { z } from "zod";
 import CaixaService from "../services/CaixaService";
+import LancamentoService from "../services/LancamentoService"; // Importação mantida
 
-// A Request agora é a padrão do Express
-// REMOVIDO: interface RequestWithUser
-// REMOVIDO: Importação de JwtPayload
+// --- R9: Esquemas de Validação Zod ---
 
-// 🔑 R9: Esquema de validação para abertura de caixa
+// Esquema de validação para abertura de caixa
 const abrirCaixaSchema = z.object({
   saldo_inicial: z
     .number()
@@ -15,35 +16,55 @@ const abrirCaixaSchema = z.object({
   colaborador_id_abertura: z
     .number()
     .int()
-    .positive("ID do colaborador inválido."),
+    .positive("ID do colaborador inválido.")
+    .optional(),
 });
 
-// 🔑 R9: Esquema de validação para fechamento de caixa
+// Esquema de validação para fechamento de caixa
 const fecharCaixaSchema = z.object({
   colaborador_id_fechamento: z
     .number()
     .int()
-    .positive("ID do colaborador de fechamento inválido."),
+    .positive("ID do colaborador de fechamento inválido.")
+    .optional(),
 });
+
+// 🔑 CORREÇÃO TS2769: Usar 'message' em vez de 'errorMap' para Zod Enum
+const lancamentoSchema = z.object({
+  tipo_lancamento: z.enum(["SANGRIA", "REFORCO", "DESPESA"], {
+    // Correção: a propriedade é 'message' para customizar a mensagem de erro do enum
+    message: "Tipo de lançamento inválido. Use SANGRIA, REFORCO ou DESPESA.", 
+  }),
+  valor: z.number().positive("O valor do lançamento deve ser positivo."),
+  descricao: z.string().min(3, "A descrição do lançamento deve ser detalhada."),
+  categoria: z.string().optional().nullable(),
+});
+
 
 class CaixaController {
   private service: CaixaService;
+  private lancamentoService: LancamentoService; 
 
   constructor() {
     this.service = new CaixaService();
+    this.lancamentoService = new LancamentoService(); 
   }
+  
+  // (abrirCaixa e fecharCaixa — sem alterações de código, apenas de comentários)
 
   public async abrirCaixa(req: Request, res: Response): Promise<Response> {
-    // REMOVIDO: Validação de unidade_id
-
     try {
-      // 🔑 R9: Validação
-      const { colaborador_id_abertura, saldo_inicial } = abrirCaixaSchema.parse(
-        req.body
-      );
+      const { colaborador_id_abertura, saldo_inicial } = abrirCaixaSchema.parse(req.body);
+
+      // R12: Prioriza o ID do usuário logado (anexado pelo authMiddleware)
+      const id_colaborador = colaborador_id_abertura || (req as any).usuario?.id_usuario;
+
+      if (!id_colaborador) {
+        return res.status(401).json({ error: "ID do colaborador não fornecido ou inválido (R12)." });
+      }
 
       const novoCaixa = await this.service.abrirCaixa(
-        colaborador_id_abertura,
+        id_colaborador,
         saldo_inicial
       );
 
@@ -76,12 +97,18 @@ class CaixaController {
     }
 
     try {
-      // 🔑 R9: Validação
       const { colaborador_id_fechamento } = fecharCaixaSchema.parse(req.body);
+
+      // R12: Prioriza o ID do usuário logado para auditoria (R7)
+      const id_colaborador = colaborador_id_fechamento || (req as any).usuario?.id_usuario;
+
+      if (!id_colaborador) {
+        return res.status(401).json({ error: "ID do colaborador não fornecido ou inválido (R12)." });
+      }
 
       const result = await this.service.fecharCaixa(
         id_caixa,
-        colaborador_id_fechamento
+        id_colaborador
       );
 
       return res.status(200).json({
@@ -103,6 +130,59 @@ class CaixaController {
       });
     }
   }
+
+
+  public async registrarLancamento(req: Request, res: Response): Promise<Response> {
+    try {
+      const validation = lancamentoSchema.safeParse(req.body);
+
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Dados de lançamento inválidos.",
+          details: validation.error.issues,
+        });
+      }
+      
+      const payload = validation.data;
+      
+      const id_colaborador_logado = (req as any).usuario?.id_usuario; 
+
+      if (!id_colaborador_logado) {
+        return res.status(401).json({ error: "Colaborador logado não identificado (R12)." });
+      }
+
+      // 1. Busca o caixa ativo (TS2339)
+      const caixaAtivo = await this.service.getCaixaAtivo(id_colaborador_logado); 
+
+      if (!caixaAtivo) {
+        return res.status(404).json({ error: "Nenhum caixa ativo encontrado para registrar lançamentos." });
+      }
+
+      // 2. Registra o lançamento usando o LancamentoService
+      const novoLancamento = await this.lancamentoService.registrarLancamento(
+        {
+          ...payload,
+          id_caixa: caixaAtivo.id_caixa, 
+          colaborador_id: id_colaborador_logado,
+        },
+        // 🔑 CORREÇÃO TS2345: Passar 'undefined' em vez de 'null' 
+        // para argumentos opcionais de Sequelize.Transaction
+        undefined 
+      );
+
+      return res.status(201).json({
+        message: `${payload.tipo_lancamento} registrada com sucesso no Caixa ID ${caixaAtivo.id_caixa}.`,
+        lancamento: novoLancamento,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        error: "Erro ao registrar o lançamento.",
+        details: (error as Error).message,
+      });
+    }
+  }
+  
+  // (listarCaixasAtivos e listarMovimentos)
 
   public async listarCaixasAtivos(
     req: Request,

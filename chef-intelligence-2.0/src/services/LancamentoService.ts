@@ -1,6 +1,7 @@
+// src/services/LancamentoService.ts
+
 import { Transaction, Op } from "sequelize";
 import { connection } from "../config/sequelize";
-// 🔑 R6: Importa o modelo Lancamento renomeado e Caixa
 import Lancamento, {
   TipoLancamento,
   LancamentoAttributes,
@@ -26,10 +27,12 @@ export default class LancamentoService {
    */
   public async registrarLancamento(
     payload: LancamentoPayload,
-    transaction: Transaction
+    // 🔑 CORREÇÃO TS2345: Torna a transação opcional/indefinida
+    transaction?: Transaction
   ): Promise<LancamentoAttributes> {
-    const { tipo_lancamento, valor } = payload; // 1. Validações de Negócio
+    const { tipo_lancamento, valor, id_caixa } = payload;
 
+    // 1. Validações de Negócio
     if (valor <= 0) {
       throw new Error(`O valor do lançamento deve ser positivo.`);
     }
@@ -42,14 +45,26 @@ export default class LancamentoService {
     ];
     if (!tiposValidos.includes(tipo_lancamento)) {
       throw new Error(`Tipo de lançamento inválido: ${tipo_lancamento}.`);
-    } // 2. Criação do Registro
+    }
 
+    // 🔑 R7 (Fonte de Dados): Validação de Caixa para movimentos manuais.
+    const requerCaixa = ["SANGRIA", "REFORCO", "DESPESA"].includes(
+      tipo_lancamento
+    );
+    if (requerCaixa && !id_caixa) {
+      throw new Error(
+        `Lançamento do tipo ${tipo_lancamento} requer um caixa ativo (id_caixa) para registro.`
+      );
+    }
+
+    // 2. Criação do Registro
     try {
       const lancamento = await Lancamento.create(
         {
           ...payload,
         },
-        { transaction }
+        // O Sequelize aceita 'undefined' para transação.
+        transaction ? { transaction } : {}
       );
 
       return lancamento.toJSON() as LancamentoAttributes;

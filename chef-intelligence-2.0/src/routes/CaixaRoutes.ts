@@ -3,11 +3,28 @@
 import { Router } from "express";
 import CaixaController from "../controllers/CaixaController";
 // Nota: authMiddleware e rbacMiddleware seriam importados aqui,
-// mas omitidos para simplicidade.
+// e são aplicados no index.ts, garantindo R12.
 
 const router = Router();
-// O CaixaController é exportado como uma instância default, então podemos usá-lo diretamente
+// O CaixaController é exportado como uma instância default
 const Controller = CaixaController;
+
+/**
+ * Rota para Lançamentos (Sangria, Reforço, Despesa)
+ * * Este endpoint é o mais crítico que faltava para a operação.
+ */
+
+/**
+ * @route POST /caixa/lancamento
+ * @description Registra um novo lançamento manual (Sangria, Reforço, Despesa) no caixa ativo.
+ * @access Private (Auth Required, Role: Gerente/Admin/Operador)
+ */
+// 🔑 Adição da rota para lançamentos manuais
+router.post("/caixa/lancamento", Controller.registrarLancamento);
+
+// -------------------------------------------------------------
+// Rotas de Gestão de Estado (Caixa)
+// -------------------------------------------------------------
 
 /**
  * @route POST /caixa/abrir

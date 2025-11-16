@@ -2,9 +2,11 @@
 
 import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
 import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
 // Assumindo que o ItemEstoque existe no path correto para resolver 2307
-import { ItemEstoqueModel } from "./ItemEstoque";
 
+import { ItemEstoqueModel } from "./ItemEstoque";
+import { ComprasPedidoModel } from "./ComprasPedido";
 export type StatusQualidade =
   | "PENDENTE"
   | "APROVADO"
@@ -75,5 +77,23 @@ const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
       modelName: "ComprasItemPedido",
     } as any // 🔑 CAST EXPLÍCITO para resolver o ERRO 2353
   );
+
+(ComprasItemPedido as any).associate = function (models: IModelFactory) {
+  ComprasItemPedido.belongsTo(
+    models.ComprasPedido as ModelCtor<ComprasPedidoModel>,
+    {
+      foreignKey: "id_pedido",
+      as: "pedido",
+    }
+  );
+
+  ComprasItemPedido.belongsTo(
+    models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
+    {
+      foreignKey: "id_produto",
+      as: "produtoReferencia",
+    }
+  );
+};
 
 export default ComprasItemPedido;

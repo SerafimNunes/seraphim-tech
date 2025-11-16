@@ -1,28 +1,57 @@
-// src/models/Colaborador.ts
+// src/models/Colaborador.ts (Versão Corrigida para TS)
 
 import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory, NivelAcesso, StatusColaborador } from "../config/types";
-import { CargoModel } from "./Cargo"; // Importa CargoModel para tipagem de associação
+import { CargoModel } from "./Cargo";
+import Cargo from "./Cargo"; // Importa o modelo Cargo para usar na associação
 
-// Interfaces (mantidas)
+// 1. Interfaces e Tipagem (Ajustada)
+
+// Define os atributos que a tabela possui
 export interface ColaboradorAttributes {
-  // ...
+  id_colaborador: number;
+  nome_completo: string;
+  email: string;
+  nivel_acesso: NivelAcesso; // Usando o tipo do seu types.ts
+  cargo_id: number;
+  status: StatusColaborador; // Usando o tipo do seu types.ts
+  data_contratacao: Date;
 }
+
+// Atributos que são opcionais na criação (TS2344 corrigido)
 export interface ColaboradorCreationAttributes
   extends Optional<ColaboradorAttributes, "id_colaborador" | "status"> {}
-export interface ColaboradorModel
-  extends Model<ColaboradorAttributes, ColaboradorCreationAttributes>,
-    ColaboradorAttributes {
-  cargo?: CargoModel;
+
+// 2. Definição da Classe do Modelo (TS2353 corrigido)
+// A classe estende Model<Atributos, Atributos de Criação>
+export class Colaborador
+  extends Model<ColaboradorAttributes, ColaboradorCreationAttributes>
+  implements ColaboradorAttributes
+{
+  // 🔑 NOVO: Defina os atributos como propriedades da classe (Sequelize V6/V7)
+  public id_colaborador!: number;
+  public nome_completo!: string;
+  public email!: string;
+  public nivel_acesso!: NivelAcesso;
+  public cargo_id!: number;
+  public status!: StatusColaborador;
+  public data_contratacao!: Date;
+
+  // Associações carregadas
+  public cargo?: CargoModel;
+
+  // Define a função estática para associações
+  public static associate(models: IModelFactory) {
+    Colaborador.belongsTo(models.Cargo as ModelCtor<CargoModel>, {
+      foreignKey: "cargo_id",
+      as: "cargo",
+    });
+  }
 }
 
-// ✅ CORREÇÃO TS2314/TS2353: Uso correto de genéricos e ModelOptions
-const Colaborador: ModelCtor<ColaboradorModel> = connection.define<
-  ColaboradorModel,
-  ColaboradorCreationAttributes
->(
-  "Colaborador",
+// 3. Inicialização do Modelo
+Colaborador.init(
   {
     id_colaborador: {
       type: DataTypes.INTEGER,
@@ -57,24 +86,22 @@ const Colaborador: ModelCtor<ColaboradorModel> = connection.define<
       allowNull: false,
     },
   },
-  // Correção do erro TS2353
+  // 4. Configurações de Sequelize
   {
     tableName: "COLABORADORES",
     sequelize: connection,
     timestamps: true,
     modelName: "Colaborador",
-  } as ModelOptions<ColaboradorModel>
+  }
 );
 
-// Associações (mantidas)
-(Colaborador as any).associate = function (models: IModelFactory) {
-  /* ... */
-};
-
+// 5. Exportação (Apenas a Classe, o padrão é o mais simples)
 export default Colaborador;
-// ✅ CORREÇÃO TS2614: Exportar as interfaces nomeadas
-export {
-  ColaboradorModel,
+
+// ✅ CORREÇÃO TS2484: Removemos a declaração duplicada das interfaces de exportação.
+// Elas já estão exportadas acima.
+/*export {
+  //ColaboradorModel, // Este era um problema, a classe Colaborador é o modelo
   ColaboradorAttributes,
   ColaboradorCreationAttributes,
-};
+};*/
