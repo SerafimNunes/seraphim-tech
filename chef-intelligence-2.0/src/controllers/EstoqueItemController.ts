@@ -1,11 +1,12 @@
-// src/controllers/EstoqueItemController.ts (CORRIGIDO)
+// src/controllers/EstoqueItemController.ts (REFACTORADO)
 
 import { Request, Response } from "express";
 import { z } from "zod";
 import { EstoqueItemService } from "../services/EstoqueItemService";
-import { connection } from "../config/sequelize"; // 🔑 Importado para gerenciar a transação
+// ❌ REMOVIDO: A conexão do Sequelize NÃO DEVE ser importada no Controller (Viola 1.D)
+// import { connection } from "../config/sequelize";
 
-// Esquemas de validação Zod
+// --- Esquemas de validação Zod (Mantido, Regra 1.B OK) ---
 const itemEstoqueSchema = z.object({
   nome: z.string().min(3, "O nome deve ter pelo menos 3 caracteres."),
   unidade_medida: z
@@ -42,83 +43,90 @@ const saidaEstoqueSchema = z.object({
     .string()
     .min(5, "A referência do documento deve ser fornecida."),
 });
+// ---------------------------------------------------------
 
 class EstoqueItemController {
-  private service: EstoqueItemService;
-
-  constructor() {
-    this.service = new EstoqueItemService(connection as any);
-  }
-
   /**
-   * 🔑 CRIAÇÃO (store) - Corrigindo TS2339 (create)
+   * 🔑 REGRAS 1.A (Injeção de Dependência): Injeção simplificada no construtor.
+   * Remove a dependência de 'connection' do construtor, pois o Service não deve
+   * mais ser inicializado com ela.
    */
+  constructor(private service: EstoqueItemService) {
+    // O Service não é mais inicializado aqui. A injeção é feita na exportação.
+  } // --- MÉTODOS CRUD (store, index, show, update) ---
+
   async store(req: Request, res: Response): Promise<Response> {
     try {
       const data = itemEstoqueSchema.parse(req.body);
-      // ✅ Chamada do método 'create'
       const produto = await this.service.create(data as any);
-      return res.status(201).json(produto);
+      return res.status(201).json(produto); // Regra 1.E (201 para POST)
     } catch (error) {
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
       if (error instanceof z.ZodError) {
         return res
           .status(400)
-          .json({ error: "Dados inválidos.", details: error.issues });
+          .json({
+            error: "Dados de entrada inválidos.",
+            details: error.issues,
+          });
       }
+      console.error("❌ Erro no Controller (store ItemEstoque):", error);
       return res.status(500).json({
-        error: "Erro ao criar Item de Estoque.",
+        error: "Erro interno do servidor ao criar Item de Estoque.",
         details: (error as Error).message,
       });
     }
   }
 
-  /**
-   * 🔑 LEITURA (index) - Corrigindo TS2339 (findAll)
-   */
   async index(req: Request, res: Response): Promise<Response> {
     try {
-      // ✅ Chamada do método 'findAll'
       const produtos = await this.service.findAll();
       return res.status(200).json(produtos);
     } catch (error) {
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
+      console.error("❌ Erro no Controller (index ItemEstoque):", error);
       return res
         .status(500)
-        .json({ error: "Erro ao listar Itens de Estoque." });
+        .json({
+          error: "Erro interno do servidor ao listar Itens de Estoque.",
+          details: (error as Error).message,
+        });
     }
   }
 
-  /**
-   * 🔑 LEITURA POR ID (show) - Corrigindo TS2339 (findById)
-   */
   async show(req: Request, res: Response): Promise<Response> {
     const id_produto = parseInt(req.params.id_produto, 10);
-    if (isNaN(id_produto))
-      return res.status(400).json({ error: "ID inválido." });
+    if (isNaN(id_produto)) {
+      return res.status(400).json({ error: "ID de produto inválido." });
+    }
 
     try {
-      // ✅ Chamada do método 'findById'
       const produto = await this.service.findById(id_produto);
       if (!produto) {
         return res.status(404).json({ error: "Produto não encontrado." });
       }
       return res.status(200).json(produto);
     } catch (error) {
-      return res.status(500).json({ error: "Erro ao buscar Item de Estoque." });
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
+      console.error("❌ Erro no Controller (show ItemEstoque):", error);
+      return res
+        .status(500)
+        .json({
+          error: "Erro interno do servidor ao buscar Item de Estoque.",
+          details: (error as Error).message,
+        });
     }
   }
 
-  /**
-   * 🔑 ATUALIZAÇÃO (update) - Corrigindo TS2339 (update)
-   */
   async update(req: Request, res: Response): Promise<Response> {
     const id_produto = parseInt(req.params.id_produto, 10);
-    if (isNaN(id_produto))
-      return res.status(400).json({ error: "ID inválido." });
+    if (isNaN(id_produto)) {
+      return res.status(400).json({ error: "ID de produto inválido." });
+    }
 
     try {
       const updates = itemEstoqueSchema.partial().parse(req.body);
 
-      // ✅ Chamada do método 'update'
       const produtoAtualizado = await this.service.update(
         id_produto,
         updates as any
@@ -126,68 +134,64 @@ class EstoqueItemController {
 
       return res.status(200).json(produtoAtualizado);
     } catch (error) {
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
+      console.error("❌ Erro no Controller (update ItemEstoque):", error);
       return res
         .status(500)
-        .json({ error: "Erro ao atualizar Item de Estoque." });
+        .json({
+          error: "Erro interno do servidor ao atualizar Item de Estoque.",
+          details: (error as Error).message,
+        });
     }
-  }
-
+  }  // --- MÉTODOS CRÍTICOS (receberEstoque, saidaEstoque) ---
   /**
-   * 🔑 ENTRADA/RECEBIMENTO - Corrigindo TS2554 (receberEstoque)
+   * 🔑 REGRAS 1.D (SRP/Transação): Remove toda a lógica de transação do Controller.
+   * O Service agora é responsável por gerenciar a atomicidade.
    */
+
   async receberEstoque(req: Request, res: Response): Promise<Response> {
-    const transaction = await connection.transaction(); // 🔑 Inicia a transação
+    // ❌ REMOVIDO: const transaction = await connection.transaction();
     try {
-      const data = receberEstoqueSchema.parse(req.body);
+      const data = receberEstoqueSchema.parse(req.body); // 🔑 CHAMADA AO SERVICE: Ele agora deve fazer a busca do produto E gerenciar a transação.
 
-      // Busca o modelo do produto (pois o service precisa dele)
-      const produtoModel = await this.service.findById(data.id_produto);
-      if (!produtoModel) throw new Error("Produto não encontrado.");
+      const resultado = await this.service.receberEstoque(data); // ❌ REMOVIDO: await transaction.commit();
 
-      const dataParaService = {
-        produto: produtoModel,
-        quantidade: data.quantidade,
-        preco_custo_unitario: data.preco_custo_unitario,
-        descricao: data.descricao,
-        referencia: data.referencia,
-      };
-
-      // ✅ CORREÇÃO DO ERRO 2554: Passa os 2 argumentos (data + transaction)
-      await this.service.receberEstoque(dataParaService as any, transaction);
-
-      await transaction.commit(); // Confirma a transação
       return res
         .status(200)
-        .json({ message: "Estoque recebido com sucesso e CMP atualizado." });
+        .json({
+          message: "Estoque recebido com sucesso e CMP atualizado.",
+          data: resultado,
+        });
     } catch (error) {
-      await transaction.rollback(); // Desfaz em caso de erro
+      // ❌ REMOVIDO: await transaction.rollback();
+
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
       if (error instanceof z.ZodError) {
         return res
           .status(400)
-          .json({ error: "Dados inválidos.", details: error.issues });
+          .json({
+            error: "Dados de entrada inválidos.",
+            details: error.issues,
+          });
       }
+      console.error("❌ Erro no Controller (receberEstoque):", error);
       return res.status(500).json({
-        error: "Erro ao processar recebimento de estoque.",
+        error: "Erro interno do servidor ao processar recebimento de estoque.",
         details: (error as Error).message,
       });
     }
   }
-
   /**
-   * 🔑 SAÍDA (saidaEstoque) - Corrigindo TS2339 (saidaEstoque)
+   * 🔑 REGRAS 1.D (SRP/Transação): Remove toda a lógica de transação do Controller.
    */
+
   async saidaEstoque(req: Request, res: Response): Promise<Response> {
-    const transaction = await connection.transaction(); // 🔑 Inicia a transação
+    // ❌ REMOVIDO: const transaction = await connection.transaction();
     try {
-      const data = saidaEstoqueSchema.parse(req.body);
+      const data = saidaEstoqueSchema.parse(req.body); // 🔑 CHAMADA AO SERVICE: O Service gerencia a transação e o retorno.
 
-      // ✅ Chamada do método 'saidaEstoque' e passa os 2 argumentos (data + transaction)
-      const { produto, custo_saida } = await this.service.saidaEstoque(
-        data,
-        transaction
-      );
+      const { produto, custo_saida } = await this.service.saidaEstoque(data); // ❌ REMOVIDO: await transaction.commit();
 
-      await transaction.commit(); // Confirma a transação
       return res.status(200).json({
         message: "Saída de estoque registrada com sucesso.",
         id_produto: produto.id_produto,
@@ -195,18 +199,24 @@ class EstoqueItemController {
         custo_total: custo_saida,
       });
     } catch (error) {
-      await transaction.rollback(); // Desfaz em caso de erro
+      // ❌ REMOVIDO: await transaction.rollback();
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
       if (error instanceof z.ZodError) {
         return res
           .status(400)
-          .json({ error: "Dados inválidos.", details: error.issues });
+          .json({
+            error: "Dados de entrada inválidos.",
+            details: error.issues,
+          });
       }
+      console.error("❌ Erro no Controller (saidaEstoque):", error);
       return res.status(500).json({
-        error: "Erro ao processar saída de estoque.",
+        error: "Erro interno do servidor ao processar saída de estoque.",
         details: (error as Error).message,
       });
     }
   }
 }
 
-export default new EstoqueItemController();
+// 📌 Instanciando o Controller e Injetando o Service (Regra 1.A)
+export default new EstoqueItemController(new EstoqueItemService());

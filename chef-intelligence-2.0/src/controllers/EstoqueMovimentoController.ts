@@ -1,63 +1,62 @@
-// src/controllers/EstoqueMovimentoController.ts (Refatorado de MovimentoController.js)
+// src/controllers/EstoqueMovimentoController.ts (REFACTORADO)
 
 import { Request, Response } from "express";
-import { WhereOptions } from "sequelize";
-import EstoqueRegistroMovimento from "../models/EstoqueRegistroMovimento"; // Novo nome do Model
-import ItemEstoque from "../models/ItemEstoque"; // Novo nome do Model
+import { EstoqueMovimentoService } from "../services/EstoqueMovimentoService"; // 🔑 Importa o NOVO Service
+
+// ❌ REMOVIDO: Controllers NUNCA devem importar Models (Regra 1.F)
+// import EstoqueRegistroMovimento from "../models/EstoqueRegistroMovimento";
+// import ItemEstoque from "../models/ItemEstoque";
 
 class EstoqueMovimentoController {
   /**
-   * Lista o histórico de movimentos de estoque, com filtros opcionais.
-   * Rota: GET /api/v1/movimentos
-   * Query Params: id_produto (number), tipo_movimento (string - ENTRADA, SAIDA, etc.)
+   * 🔑 REGRA 1.A: Injeção de Dependência Simplificada.
    */
+  constructor(private movimentoService: EstoqueMovimentoService) {}
+  /**
+   * Lista o histórico de movimentos de estoque, com filtros opcionais.
+   */
+
   async index(req: Request, res: Response): Promise<Response> {
-    // Query parameters são strings por padrão (Ex: req.query.id_produto é '1' ou undefined)
+    // Query parameters são strings por padrão
     const { id_produto, tipo_movimento } = req.query;
 
-    // Cria o objeto WHERE para filtrar a consulta (tipado)
-    const where: WhereOptions = {};
-
+    let idProdutoNum: number | undefined;
     if (id_produto) {
       // Conversão segura de id_produto para número
-      const idProdutoNum = parseInt(id_produto as string, 10);
-      if (isNaN(idProdutoNum)) {
+      const parsedId = parseInt(id_produto as string, 10);
+      if (isNaN(parsedId)) {
         return res
           .status(400)
           .json({ error: "O id_produto fornecido é inválido." });
       }
-      where.id_produto = idProdutoNum;
+      idProdutoNum = parsedId;
     }
 
-    if (tipo_movimento && typeof tipo_movimento === "string") {
-      // Filtra pelo tipo de movimento (ENTRADA, SAIDA, etc.)
-      where.tipo_movimento = tipo_movimento.toUpperCase();
-    }
+    const tipoMovimentoStr =
+      tipo_movimento && typeof tipo_movimento === "string"
+        ? tipo_movimento.toUpperCase()
+        : undefined;
 
     try {
-      const movimentos = await EstoqueRegistroMovimento.findAll({
-        where,
-        // Inclui o nome do produto (Model ItemEstoque) para facilitar a leitura do relatório
-        include: [
-          {
-            model: ItemEstoque,
-            as: "produto",
-            attributes: ["id_produto", "nome", "unidade_medida"],
-          },
-        ],
-        // Ordena do mais recente para o mais antigo
-        order: [["createdAt", "DESC"]],
+      // 🔑 DELEGAÇÃO: O Controller chama o Service para buscar os dados.
+      // Ele não sabe como a query é montada ou quais Models são usados.
+      const movimentos = await this.movimentoService.listarMovimentos({
+        id_produto: idProdutoNum,
+        tipo_movimento: tipoMovimentoStr,
       });
 
       return res.status(200).json(movimentos);
     } catch (error) {
-      console.error("❌ ERRO AO LISTAR MOVIMENTOS:", error);
+      // 🔑 REGRA 1.C: Tratamento de erros unificado.
+      console.error("❌ ERRO NO CONTROLLER (index Movimento):", error);
       return res.status(500).json({
-        error: "Erro ao listar movimentos de estoque.",
+        error: "Erro interno do servidor ao listar movimentos de estoque.",
         details: (error as Error).message,
       });
     }
   }
 }
 
-export default new EstoqueMovimentoController();
+// 🔑 REGRA 1.A: Instanciação e Injeção do NOVO Service na exportação.
+// Note que precisamos criar o EstoqueMovimentoService
+export default new EstoqueMovimentoController(new EstoqueMovimentoService());

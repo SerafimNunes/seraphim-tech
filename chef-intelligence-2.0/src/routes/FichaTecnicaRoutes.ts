@@ -1,30 +1,46 @@
-// src/routes/FichaTecnicaRoutes.ts (Novo arquivo modular)
-
 import { Router } from "express";
-// 🔑 Importa o Controller com o nome já modularizado (do seu arquivo anterior)
 import FichaTecnicaController from "../controllers/FichaTecnicaController";
+import { authMiddleware } from "../Middlewares/authMiddleware";
+import { podeAcessar } from "../Middlewares/rbacMiddleware";
+import { Acoes, Recursos } from "../config/types";
 
 const router = Router();
 
-// Rota GET para listar a Ficha Técnica de um Produto Pai
-router.get("/fichatecnica/pai/:id_produto_pai", FichaTecnicaController.index);
+// Mapeamento das Permissões para o Recurso PRODUCAO (R12)
+const FT_READ =
+  Recursos.PRODUCAO.toUpperCase() + "_" + Acoes.LEITURA.toUpperCase();
+const FT_WRITE =
+  Recursos.PRODUCAO.toUpperCase() + "_" + Acoes.ATUALIZACAO.toUpperCase();
 
-// Rota POST para CRIAÇÃO ou SUBSTITUIÇÃO completa da Ficha Técnica de um produto (recebe um ARRAY de itens)
+// 🔑 1.G: Aplica autenticação a todas as rotas
+router.use(authMiddleware);
+
+// Rota GET para listar (READ)
+router.get(
+  "/fichatecnica/pai/:id_produto_pai",
+  podeAcessar([FT_READ, FT_WRITE]),
+  FichaTecnicaController.index.bind(FichaTecnicaController)
+);
+
+// Rota POST para CRIAÇÃO ou SUBSTITUIÇÃO (WRITE)
 router.post(
   "/fichatecnica/pai/:id_produto_pai",
-  FichaTecnicaController.storeOrUpdate
+  podeAcessar([FT_WRITE]), // 🔑 CORREÇÃO: Passando como array de string.
+  FichaTecnicaController.storeOrUpdate.bind(FichaTecnicaController)
 );
 
-// Rota PUT para atualizar a QUANTIDADE de um item específico da Ficha Técnica
+// Rota PUT para atualizar QUANTIDADE de item (WRITE)
 router.put(
   "/fichatecnica/item/:idItem",
-  FichaTecnicaController.updateItemFichaTecnica
+  podeAcessar([FT_WRITE]), // 🔑 CORREÇÃO: Passando como array de string.
+  FichaTecnicaController.updateItemFichaTecnica.bind(FichaTecnicaController)
 );
 
-// Rota DELETE para remover um item específico da Ficha Técnica
+// Rota DELETE para remover um item (WRITE)
 router.delete(
   "/fichatecnica/item/:idItem",
-  FichaTecnicaController.deleteItemFichaTecnica
+  podeAcessar([FT_WRITE]), // 🔑 CORREÇÃO: Passando como array de string.
+  FichaTecnicaController.deleteItemFichaTecnica.bind(FichaTecnicaController)
 );
 
 export default router;

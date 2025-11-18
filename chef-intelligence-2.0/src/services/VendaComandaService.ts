@@ -30,12 +30,14 @@ export default class VendaComandaService {
   private lancamentoService: LancamentoService;
 
   constructor() {
+    // 1.A: Injeção de Dependência
     this.lancamentoService = new LancamentoService();
   }
 
   public async abrirComanda(
     data: AbrirComandaData
   ): Promise<VendaComandaAttributes> {
+    // 1.D: Transação obrigatória
     return connection.transaction(async (t: Transaction) => {
       const { colaborador_id_abertura, id_mesa } = data;
 
@@ -48,8 +50,7 @@ export default class VendaComandaService {
       }
 
       // 2. Cria a Venda/Comanda
-      // MOCK DE SEGURANÇA: Definir unidade_id aqui é crucial para R4.
-      // Em produção, isso viria da sessão do Colaborador.
+      // MOCK DE SEGURANÇA: Definir unidade_id aqui é crucial.
       const unidadeIdMock = 1;
 
       const novaVenda = await VendaComanda.create(
@@ -90,8 +91,9 @@ export default class VendaComandaService {
     colaborador_id_fechamento: number,
     id_caixa: number
   ): Promise<VendaComandaAttributes> {
+    // 1.D: Transação obrigatória
     return connection.transaction(async (t: Transaction) => {
-      // 1. Busca a Venda
+      // 1. Busca a Venda (com lock de atualização)
       const venda = await VendaComanda.findByPk(id_venda, {
         transaction: t,
         lock: t.LOCK.UPDATE,
@@ -107,7 +109,7 @@ export default class VendaComandaService {
         );
       }
 
-      // 2. Valida o Caixa Ativo (Sem R4)
+      // 2. Valida o Caixa Ativo
       const caixa = await Caixa.findByPk(id_caixa, { transaction: t });
       if (!caixa || caixa.status_caixa !== "ABERTO") {
         throw new Error(
@@ -115,8 +117,9 @@ export default class VendaComandaService {
         );
       }
 
-      const valorTotalVenda = new Decimal(venda.valor_total || 0); // 3. Atualiza a Comanda (Venda) para FECHADA
+      const valorTotalVenda = new Decimal(venda.valor_total || 0);
 
+      // 3. Atualiza a Comanda (Venda) para FECHADA
       const updateData: Partial<VendaComandaAttributes> = {
         status_venda: "FECHADA",
         data_fechamento: new Date(),
@@ -158,17 +161,17 @@ export default class VendaComandaService {
         );
       }
 
-      // 6. Cria o Registro Fiscal (Log de Faturamento) - CORREÇÃO CRÍTICA AQUI
+      // 6. Cria o Registro Fiscal (Log de Faturamento)
       const impostoCalculado = valorTotalVenda.times(0.04).toDP(2).toNumber();
 
-      // 💡 R4: Obtém a unidade_id da venda (assumindo que o modelo VendaComanda foi atualizado)
+      // 💡 Obtém a unidade_id da venda (necessário para R4)
       const unidadeId = (venda as any).unidade_id || 1;
 
       await RegistroFiscal.create(
         {
-          // CAMPOS OBRIGATÓRIOS ADICIONADOS AO RegistroFiscal
-          unidade_id: unidadeId, // ✅ CORREÇÃO: Necessário pela R4
-          tipo_registro: "SAIDA_VENDA", // ✅ CORREÇÃO: Necessário pelo ENUM
+          // CAMPOS OBRIGATÓRIOS
+          unidade_id: unidadeId,
+          tipo_registro: "SAIDA_VENDA",
 
           // CAMPOS EXISTENTES
           id_origem: venda.id_venda,
@@ -179,7 +182,7 @@ export default class VendaComandaService {
           imposto_simples: impostoCalculado,
           cst_cfop_padrao: "5102",
           observacoes_fisco: `Registro Fiscal gerado na conclusão da Venda ID ${venda.id_venda}.`,
-        } as RegistroFiscalAttributes, // Cast para garantir a estrutura correta
+        } as RegistroFiscalAttributes,
         { transaction: t }
       );
 

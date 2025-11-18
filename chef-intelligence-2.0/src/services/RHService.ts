@@ -1,49 +1,44 @@
-// src/services/RHService.ts
+import Colaborador from "../models/Colaborador"; // Assumindo o caminho do seu modelo
 
-import Colaborador from "../models/Colaborador";
-import { EscalaService } from "./EscalaService"; // Importa a classe para tipagem
-// 🔑 CORREÇÃO: Importa os tipos de domínio de config/types.ts
-import {
-  IHistoricoPerformance,
-  IPerfilIdeal,
-  ITreinamento,
-  IColaboradorBase,
-} from "../config/types";
+// Tipagem básica para o Colaborador (ajuste conforme seu modelo real)
+interface ColaboradorModel {
+  id_colaborador: number; // PK
+  nome_completo: string;
+  // O status é o campo crucial para checagem
+  status: "ATIVO" | "AFASTADO" | "DESLIGADO";
+  // Adicione mais campos do seu modelo Colaborador aqui...
+}
 
+/**
+ * Serviço responsável por buscar informações de recursos humanos (Colaboradores, Cargos, etc.).
+ */
 export class RHService {
-  // 🔑 Propriedade tipada como a classe (instância)
-  private escalaService: EscalaService;
+  constructor() {}
 
-  // ✅ CORREÇÃO CRÍTICA: O construtor APENAS recebe a instância.
-  // Isso quebra a dependência circular.
-  constructor(escalaServiceInstance: EscalaService) {
-    this.escalaService = escalaServiceInstance;
+  /**
+   * Busca um colaborador pelo ID (PK: id_colaborador), usado para checar disponibilidade.
+   * @param id_colaborador ID do colaborador.
+   * @returns Objeto do colaborador ou null.
+   */
+  public async getColaboradorById(
+    id_colaborador: number
+  ): Promise<ColaboradorModel | null> {
+    try {
+      // Busca o Colaborador usando a PK correta
+      const colaborador = await Colaborador.findByPk(id_colaborador);
+
+      if (colaborador) {
+        // Simulação de conversão para o tipo ColaboradorModel
+        return colaborador.toJSON() as ColaboradorModel;
+      }
+
+      return null;
+    } catch (error) {
+      console.error(
+        `[RHService] Erro ao buscar colaborador ${id_colaborador}:`,
+        error
+      );
+      return null;
+    }
   }
-
-  // --- Métodos de RHService ---
-
-  async definirPerfilIdeal(perfil: IPerfilIdeal): Promise<void> {
-    console.log(
-      `👤 RHService: Perfil ideal definido para o cargo ${perfil.cargo_id}.`
-    );
-  }
-
-  async verificarTreinamentoConcluido(
-    colaboradorId: number,
-    cargoId: number
-  ): Promise<boolean> {
-    const concluido = Math.random() > 0.1;
-    console.log(
-      `📚 RHService: Checando R13 - Colaborador ${colaboradorId} tem treinamento? ${concluido}.`
-    );
-    return concluido;
-  }
-
-  async registrarPerformance(data: IHistoricoPerformance): Promise<void> {
-    console.log(
-      `📊 RHService: Performance de ${data.colaborador_id} registrada para Análise (Módulo 6).`
-    );
-  }
-
-  // Você pode adicionar outros métodos do RHService aqui (ex: consultarCursos, buscarHistorico)
 }

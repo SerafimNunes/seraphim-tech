@@ -1,66 +1,83 @@
-// src/controllers/EstoqueContagemController.ts (Refatorado para usar o Service)
+// src/controllers/EstoqueContagemController.ts
 
 import { Request, Response } from "express";
-import { z } from "zod"; // 💡 Importa o Zod para validação
-import { EstoqueContagemService } from "../services/EstoqueContagemService"; // 🔑 Importa o Service
+import { z } from "zod";
+import { EstoqueContagemService } from "../services/EstoqueContagemService";
+
+/**
+ * Define o schema de validação usando Zod.
+ * O Controller é o local ideal para a validação do corpo da requisição (Regra 1.B).
+ */
+const contagemSchema = z.object({
+  id_produto: z
+    .number()
+    .int()
+    .positive({
+      message: "O ID do produto deve ser um número inteiro positivo.",
+    }),
+  estoque_contado: z
+    .number()
+    .nonnegative({ message: "O estoque contado não pode ser negativo." }),
+  colaborador_id: z
+    .number()
+    .int()
+    .positive({
+      message: "O ID do colaborador deve ser um número inteiro positivo.",
+    }),
+});
+
+// Tipo derivado do schema para uso interno
+type ContagemPayload = z.infer<typeof contagemSchema>;
 
 class EstoqueContagemController {
-  private contagemService: EstoqueContagemService;
-
-  constructor() {
-    // Inicializa o Service
-    this.contagemService = new EstoqueContagemService();
-  }
-
-  // 💡 Define um schema de validação com Zod
-  private contagemSchema = z.object({
-    id_produto: z.number().int().positive(),
-    estoque_contado: z.number().nonnegative(),
-    colaborador_id: z.number().int().positive(),
-  });
-
+  /**
+   * 🔑 REGRAS 1.A (Injeção de Dependência): A injeção DEVE ser feita no construtor.
+   * Remove a declaração manual e a inicialização 'new NomeService()' do corpo do construtor.
+   */
+  constructor(private contagemService: EstoqueContagemService) {}
   /**
    * Registra uma nova Contagem Cega (Inventário Físico) de um produto.
    * Rota: POST /api/v1/contagem
-   * @body { id_produto, estoque_contado, colaborador_id }
    */
+
   async store(req: Request, res: Response): Promise<Response> {
     try {
-      // 1. 💡 Validação de Entrada robusta com Zod
-      const payload = this.contagemSchema.parse(req.body);
+      // 1. Validação de Entrada (Regra 1.B: Uso do Zod)
+      const payload: ContagemPayload = contagemSchema.parse(req.body); // 2. Chamada ao Service (SRP: O Controller apenas delega)
 
-      // 2. 🔑 CHAMADA AO SERVICE: Toda a lógica transacional e cálculo está aqui.
       const { produto, resultado_auditoria } =
-        await this.contagemService.registrarContagem({
-          id_produto: payload.id_produto,
-          estoque_contado: payload.estoque_contado,
-          colaborador_id: payload.colaborador_id,
-        });
+        await this.contagemService.registrarContagem(payload); // 3. Retorno de Sucesso (Regra 1.E: 201 para criação)
 
-      // 3. Retorno de Sucesso
       return res.status(201).json({
         message: `Contagem cega de ${produto.nome} registrada e estoque ajustado.`,
         resultado_auditoria: resultado_auditoria,
+        data: produto,
       });
     } catch (error) {
-      // Se o erro for do Zod, retorna um erro 400 (Bad Request)
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({
-            error: "Dados de entrada inválidos.",
-            details: error.issues,
-          });
-      }
+      // 🔑 REGRA 1.C (Tratamento de Erros): Padrão uniforme no try/catch.
 
-      console.error("❌ ERRO NA TRANSAÇÃO DE CONTAGEM CEGA:", error);
-      // O 'error as Error' é necessário para garantir a tipagem
+      // Tratamento específico para ZodError (400 - Bad Request)
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          error: "Dados de entrada inválidos.",
+          details: error.issues,
+        });
+      } // Tratamento genérico para outros erros (500 - Internal Server Error)
+
+      console.error("❌ Erro no Controller (store Contagem):", error);
       return res.status(500).json({
-        error: "Erro ao registrar contagem de estoque.",
-        details: (error as Error).message,
+        error: "Erro interno do servidor ao registrar contagem de estoque.",
+        details: (error as Error).message, // Garantindo a mensagem de erro.
       });
     }
   }
 }
 
-export default new EstoqueContagemController();
+// 📌 NOTA: O arquivo final de um projeto real usaria um Container de DI (ex: Inversify, Tsyringe, ou um Factory)
+// para criar a instância. Para simplificar no arquivo, usaremos a injeção via index/factory:
+export default new EstoqueContagemController(new EstoqueContagemService());
+
+// Se o seu sistema tiver um arquivo de rotas (index.ts/routes.ts) o ideal é que a injeção
+// seja feita lá, por exemplo:
+// const contagemController = new EstoqueContagemController(new EstoqueContagemService());
+// router.post('/contagem', contagemController.store.bind(contagemController));

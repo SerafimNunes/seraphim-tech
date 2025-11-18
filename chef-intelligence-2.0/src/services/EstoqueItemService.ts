@@ -1,29 +1,34 @@
-// src/services/EstoqueItemService.ts (CORRIGIDO)
+// src/services/EstoqueItemService.ts (REFACTORADO PARA USAR ESTOQUE SERVICE)
 
 import { Transaction, Sequelize, Op } from "sequelize";
+import { connection } from "../config/sequelize";
 import ItemEstoque, {
   ItemEstoqueModel,
   ItemEstoqueCreationAttributes,
 } from "../models/ItemEstoque";
-import EstoqueRegistroMovimento, {
-  EstoqueRegistroMovimentoCreationAttributes,
-} from "../models/EstoqueRegistroMovimento";
-import { connection } from "../config/sequelize";
+// ❌ REMOVIDO: Nã precisa mais registrar movimento aqui.
+// import EstoqueRegistroMovimento, {...} from "../models/EstoqueRegistroMovimento";
 
-// Interfaces de dados
-interface ReceberEstoqueData {
-  produto: ItemEstoqueModel;
+// 🔑 Importa o Service de baixo nível
+import { EstoqueService } from "./EstoqueService";
+import { MovimentoPayload } from "./EstoqueService"; // Para reuso de tipos
+
+// Interfaces de dados (Mantidas, mas o Service as usa como Payloads de entrada)
+interface ReceberEstoquePayload {
+  id_produto: number;
   quantidade: number;
   preco_custo_unitario: number;
   descricao: string;
   referencia: string;
+  colaborador_id?: number; // Adicionado para auditoria
 }
 
-interface SaidaEstoqueData {
+interface SaidaEstoquePayload {
   id_produto: number;
   quantidade: number;
   descricao: string;
   referencia: string;
+  colaborador_id?: number; // Adicionado para auditoria
 }
 
 interface SaidaResult {
@@ -32,14 +37,17 @@ interface SaidaResult {
 }
 
 export class EstoqueItemService {
-  private dbConnection: Sequelize;
+  private estoqueService: EstoqueService;
 
-  // ✅ CORREÇÃO 1: Construtor OK, recebe a conexão
-  constructor(sequelize: Sequelize) {
-    this.dbConnection = sequelize;
+  /**
+   * 🔑 REGRA 1.A: Injeção de Dependência do EstoqueService (Service de Baixo Nível).
+   */
+  constructor(estoqueService = new EstoqueService()) {
+    this.estoqueService = estoqueService;
   }
 
-  // --- MÉTODOS CRUD (Adicionados para resolver TS2339) ---
+  // --- MÉTODOS CRUD (Mantidos, pois são responsabilidade de ItemEstoque) ---
+
   public async create(
     data: ItemEstoqueCreationAttributes
   ): Promise<ItemEstoqueModel> {
@@ -47,7 +55,15 @@ export class EstoqueItemService {
   }
 
   public async findAll(): Promise<ItemEstoqueModel[]> {
-    return ItemEstoque.findAll();
+    return ItemEstoque.findAll({
+      attributes: [
+        "id_produto",
+        "nome",
+        "estoque_atual",
+        "unidade_medida",
+        "preco_custo_unitario",
+      ],
+    });
   }
 
   public async findById(id_produto: number): Promise<ItemEstoqueModel | null> {
@@ -65,88 +81,123 @@ export class EstoqueItemService {
     await produto.update(updates as any);
     return produto;
   }
-  // --- FIM DOS MÉTODOS CRUD ---
+  // ---------------------------------------------------
 
   /**
-   * ✅ ENTRADA/RECEBIMENTO: Recalcula o Custo Médio Ponderado (CMP).
-   * Requer 2 argumentos: data e transaction.
+   * 🔑 ENTRADA/RECEBIMENTO: ORQUESTRAÇÃO TRANSACIONAL.
+   * Responsável por: 1. Iniciar Transação. 2. Buscar Produto com Lock. 3. Delegar a lógica de CMP.
    */
   public async receberEstoque(
-    data: ReceberEstoqueData,
-    transaction: Transaction
-  ) {
-    const { produto, quantidade, preco_custo_unitario } = data;
+    payload: ReceberEstoquePayload
+  ): Promise<ItemEstoqueModel> {
+    const {
+      id_produto,
+      quantidade,
+      preco_custo_unitario,
+      descricao,
+      referencia,
+      colaborador_id,
+    } = payload;
+    let transaction: Transaction | null = null;
 
-    const estoque_anterior = parseFloat(
-      produto.getDataValue("estoque_atual") as unknown as string
-    );
-    const custo_medio_unitario_anterior = parseFloat(
-      produto.getDataValue("preco_custo_unitario") as unknown as string
-    );
+    try {
+      // 1. INÍCIO DA TRANSAÇÃO (Responsabilidade do Service Orquestrador)
+      transaction = await connection.transaction({
+        isolationLevel: (Sequelize as any).Transaction.ISOLATION_LEVELS
+          .SERIALIZABLE,
+      });
 
-    const valor_total_anterior =
-      estoque_anterior * custo_medio_unitario_anterior;
-    const valor_total_novo_insumo = quantidade * preco_custo_unitario;
+      // 2. Busca do Produto com Lock (Responsabilidade do Service Orquestrador)
+      const produto = (await ItemEstoque.findByPk(id_produto, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      })) as ItemEstoqueModel | null;
 
-    const novo_estoque = estoque_anterior + quantidade;
-    const novo_custo_medio_ponderado =
-      novo_estoque > 0
-        ? (valor_total_anterior + valor_total_novo_insumo) / novo_estoque
-        : 0;
+      if (!produto) {
+        throw new Error(
+          `Produto com ID ${id_produto} não encontrado para recebimento.`
+        );
+      }
 
-    await produto.update(
-      {
-        estoque_atual: novo_estoque,
-        preco_custo_unitario: novo_custo_medio_ponderado,
-      },
-      { transaction }
-    );
+      // 3. 🔑 DELEGAÇÃO: Chama o EstoqueService para fazer o CMP, atualização e registro.
+      const produtoAtualizado = await this.estoqueService.entradaEstoque(
+        produto, // Model Produto
+        quantidade,
+        preco_custo_unitario, // custo_entrada_unitario
+        "ENTRADA", // tipo_movimento
+        descricao,
+        referencia,
+        colaborador_id,
+        transaction // Passa a transação para o EstoqueService
+      );
 
-    // Lógica de Registro de Movimento aqui
+      // 4. Commit
+      await transaction.commit();
+      return produtoAtualizado;
+    } catch (error) {
+      // 5. Rollback
+      if (transaction) {
+        await transaction.rollback();
+      }
+      throw error;
+    }
   }
 
   /**
-   * ✅ SAÍDA DE ESTOQUE (Adicionado para resolver TS2339).
-   * Requer 2 argumentos: data e transaction.
+   * 🔑 SAÍDA DE ESTOQUE: ORQUESTRAÇÃO TRANSACIONAL.
+   * Responsável por: 1. Iniciar Transação. 2. Buscar Produto com Lock. 3. Delegar a lógica de Saída.
    */
   public async saidaEstoque(
-    data: SaidaEstoqueData,
-    transaction: Transaction
+    payload: SaidaEstoquePayload
   ): Promise<SaidaResult> {
-    const { id_produto, quantidade: qtd_saida } = data;
+    const {
+      id_produto,
+      quantidade: qtd_saida,
+      descricao,
+      referencia,
+      colaborador_id,
+    } = payload;
+    let transaction: Transaction | null = null;
 
-    const produto = await ItemEstoque.findByPk(id_produto, {
-      transaction,
-      lock: transaction.LOCK.UPDATE,
-    });
+    try {
+      // 1. INÍCIO DA TRANSAÇÃO
+      transaction = await connection.transaction({
+        isolationLevel: (Sequelize as any).Transaction.ISOLATION_LEVELS
+          .SERIALIZABLE,
+      });
 
-    if (!produto) {
-      throw new Error("Produto não encontrado para a saída de estoque.");
-    }
+      // 2. Busca do Produto com Lock
+      const produto = (await ItemEstoque.findByPk(id_produto, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      })) as ItemEstoqueModel | null;
 
-    const estoque_anterior = parseFloat(
-      produto.getDataValue("estoque_atual") as unknown as string
-    );
-    const custo_medio_unitario = parseFloat(
-      produto.getDataValue("preco_custo_unitario") as unknown as string
-    );
+      if (!produto) {
+        throw new Error(
+          `Produto com ID ${id_produto} não encontrado para saída.`
+        );
+      }
 
-    if (estoque_anterior < qtd_saida) {
-      throw new Error(
-        `Estoque insuficiente para o produto ${produto.nome}. Disponível: ${estoque_anterior}, Requerido: ${qtd_saida}.`
+      // 3. 🔑 DELEGAÇÃO: Chama o EstoqueService para fazer o cálculo de CMV, atualização e registro.
+      const saidaResult = await this.estoqueService.saidaEstoque(
+        produto, // Model Produto
+        qtd_saida,
+        "AJUSTE_SAIDA", // 🔑 CORRIGIDO: Deve usar um tipo de movimento válido, como "AJUSTE_SAIDA" para saídas genéricas.
+        descricao,
+        referencia,
+        colaborador_id,
+        transaction // Passa a transação para o EstoqueService
       );
+
+      // 4. Commit
+      await transaction.commit();
+      return saidaResult;
+    } catch (error) {
+      // 5. Rollback
+      if (transaction) {
+        await transaction.rollback();
+      }
+      throw error;
     }
-
-    // 1. Cálculo da Saída (Custo)
-    const custo_saida = qtd_saida * custo_medio_unitario;
-    const novo_estoque = estoque_anterior - qtd_saida;
-
-    // 2. Atualiza o Produto (ItemEstoque)
-    await produto.update({ estoque_atual: novo_estoque }, { transaction });
-
-    // 3. Registra o Movimento de Estoque (Audit Log) - (Removido o model para não gerar outro 2307)
-    // ... Lógica de Registro de Movimento aqui
-
-    return { produto: produto as ItemEstoqueModel, custo_saida };
   }
 }

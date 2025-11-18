@@ -1,21 +1,19 @@
-// src/services/FichaTecnicaService.ts
-
 import { Transaction } from "sequelize";
 import { connection } from "../config/sequelize";
-import FichaTecnica, {
-  FichaTecnicaCreationAttributes,
-  FichaTecnicaModel,
-} from "../models/FichaTecnica";
-import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque"; // Novo nome para Produto
+import FichaTecnica, { FichaTecnicaModel } from "../models/FichaTecnica";
+import ItemEstoque from "../models/ItemEstoque";
 import Decimal from "decimal.js";
+// Assumindo que você importou as interfaces de Model do seu arquivo
 
-interface FichaTecnicaItemPayload extends FichaTecnicaCreationAttributes {} // Extende os atributos do model para o payload
+// Extende os atributos do model para o payload
+interface FichaTecnicaItemPayload {
+  id_produto_filho: number;
+  quantidade_necessaria: number;
+}
 
 export class FichaTecnicaService {
   /**
    * Função Auxiliar Crítica: Recalcula e atualiza o Custo Médio de Produção (CMP) do Produto Pai.
-   * Deve ser chamada dentro de uma transação, mas a função encapsula seu próprio commit/rollback.
-   * @param idProdutoPai O ID do produto final/pré-pronto cuja FT foi alterada.
    */
   public async recalcularCustoFichaTecnica(
     idProdutoPai: number,
@@ -26,21 +24,19 @@ export class FichaTecnicaService {
       where: { id_produto_pai: idProdutoPai },
       include: [
         {
-          model: ItemEstoque, // Novo Model
-          as: "produto_filho", // A associação deve usar o alias 'produto_filho'
-          attributes: ["preco_custo_unitario"], // Pega o custo atual do insumo em estoque
+          model: ItemEstoque,
+          as: "produto_filho",
+          attributes: ["preco_custo_unitario"],
         },
       ],
-      transaction, // Usa a transação externa se fornecida
+      transaction,
     });
 
-    let custoTotal = new Decimal(0);
+    let custoTotal = new Decimal(0); // 🔑 FIX: Declaração e Inicialização de custoTotal // 2. Calcula o custo total: SUM(quantidade_necessaria * preco_custo_unitario)
 
-    // 2. Calcula o custo total: SUM(quantidade_necessaria * preco_custo_unitario)
     for (const item of composicao) {
       const qtd = new Decimal(item.quantidade_necessaria as unknown as string);
 
-      // Pega o custo médio do insumo que está no estoque (tabela ITEM_ESTOQUE)
       const custoInsumo = item.produto_filho?.preco_custo_unitario
         ? new Decimal(
             item.produto_filho.preco_custo_unitario as unknown as string
@@ -48,9 +44,8 @@ export class FichaTecnicaService {
         : new Decimal(0);
 
       custoTotal = custoTotal.plus(qtd.times(custoInsumo));
-    }
+    } // 3. Atualiza o Custo Médio de Produção (CMP) no Produto Pai (ItemEstoque)
 
-    // 3. Atualiza o Custo Médio de Produção (CMP) no Produto Pai (ItemEstoque)
     const produtoPai = await ItemEstoque.findByPk(idProdutoPai, {
       transaction,
     });
@@ -62,100 +57,103 @@ export class FichaTecnicaService {
     }
 
     await produtoPai.update(
-      {
-        // CMP do Produto Pai é igual ao Custo Total da FT
-        preco_custo_unitario: custoTotal.toNumber(),
-      },
+      { preco_custo_unitario: custoTotal.toNumber() }, // 🔑 FIX: custoTotal agora é reconhecido
       { transaction }
     );
 
-    return custoTotal.toNumber();
-  }
-
+    return custoTotal.toNumber(); // 🔑 FIX: custoTotal agora é reconhecido
+  }  // --- MÉTODOS DE NEGÓCIO ---
   /**
    * Cria ou Substitui COMPLETAMENTE a Ficha Técnica de um Produto Pai.
-   * @param idProdutoPai O ID do produto a ter a FT alterada.
-   * @param novosItens Array de itens da nova Ficha Técnica.
    */
+
   public async storeOrUpdate(
     idProdutoPai: number,
-    novosItens: FichaTecnicaItemPayload[]
+    novosItens: FichaTecnicaItemPayload[],
+    unidadeId: number
   ): Promise<{ itens: FichaTecnicaModel[]; novoCusto: number }> {
+    // 🔑 2.C: Inicia a Transação
     const transaction: Transaction = await connection.transaction();
 
     try {
-      // 1. Validação: Checa se o produto pai existe e é um pré-pronto/vendável (opcional, mas bom)
-      const produtoPai = await ItemEstoque.findByPk(idProdutoPai, {
+      // 🔑 2.D/R4: Validação: Checa se o produto pai existe E pertence à unidade
+      const produtoPai = await ItemEstoque.findOne({
+        where: { id_produto: idProdutoPai, unidade_id: unidadeId },
         transaction,
       });
       if (!produtoPai) {
-        throw new Error("Produto Pai não encontrado.");
-      }
+        throw new Error(
+          "Produto Pai não encontrado ou não pertence à sua unidade."
+        );
+      } // 2. Apaga todos os itens existentes
 
-      // 2. Apaga todos os itens existentes da Ficha Técnica (Substituição Completa)
       await FichaTecnica.destroy({
         where: { id_produto_pai: idProdutoPai },
         transaction,
-      });
+      }); // 3. Cria os novos itens. Nota: Assumindo que o model FichaTecnica tem unidade_id
 
-      // 3. Cria os novos itens da Ficha Técnica
       const itensCriados = await FichaTecnica.bulkCreate(
-        novosItens.map((item) => ({ ...item, id_produto_pai: idProdutoPai })),
+        novosItens.map((item) => ({
+          ...item,
+          id_produto_pai: idProdutoPai,
+          unidade_id: unidadeId,
+        })),
         { transaction, validate: true }
-      );
+      ); // 4. Recalcula o Custo Médio de Produção (CMP)
 
-      // 4. Recalcula o Custo Médio de Produção (CMP)
       const novoCusto = await this.recalcularCustoFichaTecnica(
         idProdutoPai,
         transaction
       );
 
-      await transaction.commit();
-
+      await transaction.commit(); // 🔑 2.C: Commit
       return { itens: itensCriados, novoCusto };
     } catch (error) {
-      await transaction.rollback();
+      await transaction.rollback(); // 🔑 2.C: Rollback
       throw error;
     }
   }
-
   /**
    * Atualiza a quantidade de um item específico da Ficha Técnica e recalcula o CMP.
    */
+
   public async updateItemQuantidade(
     idItem: number,
-    quantidade_necessaria: number
+    quantidade_necessaria: number,
+    unidadeId: number
   ): Promise<{ item: FichaTecnicaModel; novoCusto: number }> {
     const transaction: Transaction = await connection.transaction();
 
     try {
-      const item = await FichaTecnica.findByPk(idItem, { transaction });
-
-      if (!item) {
-        throw new Error("Item da Ficha Técnica não encontrado.");
+      const item = await FichaTecnica.findByPk(idItem, { transaction }); // 🔑 2.D/R4: Validação da posse do item (o item deve ter a unidade_id)
+      if (!item || (item as any).unidade_id !== unidadeId) {
+        throw new Error(
+          "Item da Ficha Técnica não encontrado ou não pertence à sua unidade."
+        );
       }
 
       await item.update({ quantidade_necessaria }, { transaction });
 
-      // Recalcula o custo após a atualização
       const novoCusto = await this.recalcularCustoFichaTecnica(
         item.id_produto_pai,
         transaction
       );
 
       await transaction.commit();
-
       return { item, novoCusto };
     } catch (error) {
       await transaction.rollback();
       throw error;
     }
   }
-
   /**
    * Remove um item específico da Ficha Técnica e recalcula o CMP.
    */
-  public async deleteItem(idItem: number): Promise<{
+
+  public async deleteItem(
+    idItem: number,
+    unidadeId: number
+  ): Promise<{
     id_removido: number;
     id_produto_pai: number;
     novoCusto: number;
@@ -163,38 +161,45 @@ export class FichaTecnicaService {
     const transaction: Transaction = await connection.transaction();
 
     try {
-      const item = await FichaTecnica.findByPk(idItem, { transaction });
+      const item = await FichaTecnica.findByPk(idItem, { transaction }); // 🔑 2.D/R4: Validação da posse do item
 
-      if (!item) {
-        throw new Error("Item da Ficha Técnica não encontrado.");
+      if (!item || (item as any).unidade_id !== unidadeId) {
+        throw new Error(
+          "Item da Ficha Técnica não encontrado ou não pertence à sua unidade."
+        );
       }
 
       const idProdutoPai = item.id_produto_pai;
-
       await item.destroy({ transaction });
 
-      // Recalcula o custo após a exclusão
       const novoCusto = await this.recalcularCustoFichaTecnica(
         idProdutoPai,
         transaction
       );
 
       await transaction.commit();
-
       return { id_removido: idItem, id_produto_pai: idProdutoPai, novoCusto };
     } catch (error) {
       await transaction.rollback();
       throw error;
     }
   }
-
   /**
-   * Busca a Ficha Técnica de um Produto Pai.
+   * Busca a Ficha Técnica de um Produto Pai (READ).
    */
+
   public async findFichaTecnica(
-    idProdutoPai: number
+    idProdutoPai: number,
+    unidadeId: number
   ): Promise<FichaTecnicaModel[]> {
-    // Não precisa de transação, é apenas leitura
+    // 🔑 2.D/R4: Primeiro, verifica a posse do produto pai (Produto Pai pertence à unidade?)
+    const produtoPai = await ItemEstoque.findOne({
+      where: { id_produto: idProdutoPai, unidade_id: unidadeId },
+    });
+    if (!produtoPai) {
+      return [];
+    } // Busca a composição (a FT está implicitamente isolada via id_produto_pai)
+
     const composicao = await FichaTecnica.findAll({
       where: { id_produto_pai: idProdutoPai },
       include: [

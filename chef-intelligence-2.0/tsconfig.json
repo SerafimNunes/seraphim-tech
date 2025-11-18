@@ -1,9 +1,9 @@
-// tsconfig.json (Versão Final e Moderna)
+// tsconfig.json (Recomendado)
 {
   "compilerOptions": {
-    // R1: NodeNext é a configuração moderna que resolve o problema de tipagem
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "strict": true,
     "esModuleInterop": true,
@@ -11,7 +11,23 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+
+    // --- Configurações para Resolução de Módulos (Caminhos) ---
+    "baseUrl": "./src",
+    "paths": {
+      // Configurações baseadas na sua estrutura de pastas
+      "@config/*": ["config/*"],
+      "@controllers/*": ["controllers/*"],
+      "@services/*": ["services/*"],
+      "@models/*": ["models/*"],
+      "@middlewares/*": ["Middlewares/*"],
+      "@routes/*": ["routes/*"],
+      "@tests/*": ["tests/*"]
+    },
+
+    // --- Tipagens Globais ---
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

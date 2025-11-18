@@ -1,108 +1,76 @@
-// src/models/Usuario.ts
-
-import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { DataTypes, Model, ModelCtor } from "sequelize";
 import { connection } from "../config/sequelize";
-// 🔑 Importações diretas para CORRIGIR o erro 'not a subclass of Sequelize.Model'
-import Cargo, { CargoModel } from "./Cargo";
-import Unidade from "./Unidade";
-import Colaborador from "./Colaborador";
-
 import { IModelFactory } from "../config/types";
+import { CargoModel } from "./Cargo"; // Importa o tipo do Cargo
+import Cargo from "./Cargo"; // Importa o modelo Cargo para a associação
 
+// Interface para os atributos de Usuário
 interface UsuarioAttributes {
-  id_usuario: number;
+  id_usuario: number; // Renomeado para seguir o padrão
   email: string;
-  senha_hash: string;
-  // Chaves estrangeiras essenciais para Auth/RBAC (R12)
-  cargo_id: number;
-  unidade_id: number; // R4: Multi-Unidade
-  // FK para a tabela de RH
-  colaborador_id: number;
+  senha_hash: string; // Adicionado para ser usado pelo AuthService.login
+  cargo_id: number; // 🔑 CHAVE CRÍTICA ADICIONADA para o relacionamento com Cargo
+  unidade_id: number; // Campo crucial para o R4 (Multi-Unidade) // ... outros campos (nome, etc.)
 }
 
-type UsuarioCreationAttributes = Optional<UsuarioAttributes, "id_usuario">;
-
-// 1. CORREÇÃO TS2528: Removendo o 'export default' daqui
-export class Usuario
-  extends Model<UsuarioAttributes, UsuarioCreationAttributes>
+/**
+ * Modelo Sequelize para a tabela 'usuarios'.
+ * Implementa o relacionamento com Cargo (e indiretamente Permissões) para o RBAC.
+ */
+export default class Usuario
+  extends Model<UsuarioAttributes>
   implements UsuarioAttributes
 {
   public id_usuario!: number;
   public email!: string;
   public senha_hash!: string;
   public cargo_id!: number;
-  public unidade_id!: number;
-  public colaborador_id!: number;
+  public unidade_id!: number; // Associações carregadas
 
-  // Associações
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
-  public cargo?: CargoModel;
+  public cargo?: CargoModel; // R12: Permite carregar o objeto Cargo // Associações (CRÍTICO para o AuthService)
+
+  public static associate(models: IModelFactory) {
+    Usuario.belongsTo(models.Cargo as ModelCtor<CargoModel>, {
+      foreignKey: "cargo_id",
+      as: "cargo", // 🔑 ALIAS CRÍTICO: Deve ser 'cargo' para o AuthService
+    });
+  }
 }
 
+// Inicialização do Modelo
 Usuario.init(
   {
     id_usuario: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER, // Ajustado de UNSIGNED
       autoIncrement: true,
       primaryKey: true,
     },
     email: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING,
       allowNull: false,
       unique: true,
     },
     senha_hash: {
-      type: DataTypes.STRING(255),
+      type: DataTypes.STRING,
       allowNull: false,
     },
-    // R12: Acesso direto ao Cargo para busca rápida de permissões
     cargo_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: { model: "Cargos", key: "id_cargo" },
+      references: {
+        model: "CARGOS", // Nome da tabela
+        key: "id_cargo",
+      },
     },
-    // R4: Acesso direto à Unidade
     unidade_id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER, // Ajustado de UNSIGNED
       allowNull: false,
-      references: { model: "Unidades", key: "id_unidade" },
-    },
-    // 1:1 com o modelo Colaborador de RH
-    colaborador_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      unique: true,
-      references: { model: "Colaboradores", key: "id_colaborador" },
     },
   },
   {
+    tableName: "USUARIOS", // Nome da tabela
     sequelize: connection,
-    tableName: "Usuarios",
-    underscored: true,
+    timestamps: true,
+    modelName: "Usuario",
   }
 );
-
-// Associações
-(Usuario as any).associate = function (models: IModelFactory) {
-  // 2. CORREÇÃO TS2345/TS2352: Simplificando o cast para 'as any'
-  Usuario.belongsTo(Cargo as any, {
-    foreignKey: "cargo_id",
-    as: "cargo",
-  });
-
-  // 2. CORREÇÃO TS2345/TS2352: Simplificando o cast para 'as any'
-  Usuario.belongsTo(Unidade as any, {
-    foreignKey: "unidade_id",
-    as: "unidade",
-  });
-
-  // 2. CORREÇÃO TS2345/TS2352: Simplificando o cast para 'as any'
-  Usuario.belongsTo(Colaborador as any, {
-    foreignKey: "colaborador_id",
-    as: "colaborador",
-  });
-};
-
-// 1. CORREÇÃO TS2528: Mantendo a exportação default no final
-export default Usuario;

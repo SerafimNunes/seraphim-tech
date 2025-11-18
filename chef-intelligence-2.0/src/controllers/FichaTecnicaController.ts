@@ -1,153 +1,166 @@
-// src/controllers/FichaTecnicaController.ts (CORRIGIDO PARA TYPESCRIPT)
+import { Request, Response } from "express";
+import { z } from "zod";
+import { FichaTecnicaService } from "../services/FichaTecnicaService";
+import { JwtPayload } from "../Middlewares/authMiddleware";
 
-import { Request, Response } from "express"; // 🔑 CORREÇÃO 7006: Importa tipos Request e Response
-import { FichaTecnicaService } from "../services/FichaTecnicaService"; // Importa o Service
+// 🔑 1.B: Esquema de validação para criação/atualização de itens (Array)
+const FichaTecnicaItemSchema = z.object({
+  id_produto_filho: z
+    .number()
+    .int()
+    .positive({ message: "ID do item filho deve ser um número positivo." }),
+  quantidade_necessaria: z
+    .number()
+    .positive({
+      message: "Quantidade necessária deve ser um número positivo.",
+    }),
+});
+
+const FichaTecnicaArraySchema = z.array(FichaTecnicaItemSchema);
+
+// 🔑 1.B: Esquema de validação para atualização de quantidade
+const QuantidadeUpdateSchema = z.object({
+  quantidade_necessaria: z
+    .number()
+    .positive({
+      message: "Quantidade necessária deve ser um valor numérico positivo.",
+    }),
+});
 
 class FichaTecnicaController {
-  // 🔑 CORREÇÃO 2339: Declara a propriedade 'service' explicitamente
   private service: FichaTecnicaService;
 
   constructor() {
+    // 🔑 1.A: Injeção de Dependência
     this.service = new FichaTecnicaService();
-  }
+  } /** Rota GET: Listar Ficha Técnica */ // --- Métodos refatorados para incluir Zod (1.B) e R4/2.D (unidade_id) ---
 
-  /**
-   * Rota GET para listar a Ficha Técnica de um Produto Pai
-   * Rota: GET /api/v1/fichatecnica/pai/:id_produto_pai
-   */
-  async index(req: Request, res: Response): Promise<Response> {
-    const id_produto_pai = parseInt(req.params.id_produto_pai, 10);
-
+  public async index(req: Request, res: Response): Promise<Response> {
     try {
-      const composicao = await this.service.findFichaTecnica(id_produto_pai);
+      const usuario = req.usuario as JwtPayload; // Valida id_produto_pai
+      const id_produto_pai = z
+        .number()
+        .int()
+        .positive()
+        .parse(parseInt(req.params.id_produto_pai, 10)); // 🔑 2.D/R4: Passa o unidade_id para garantir isolamento na busca.
 
-      if (composicao.length === 0) {
-        return res.status(200).json({
-          message: "Ficha Técnica não encontrada ou vazia para este produto.",
-          composicao: [],
-        });
-      }
+      const composicao = await this.service.findFichaTecnica(
+        id_produto_pai,
+        usuario.unidade_id
+      ); // 🔑 1.E: Resposta
 
       return res.status(200).json(composicao);
     } catch (error: unknown) {
-      // 🔑 CORREÇÃO 18046: Tipa o catch como 'unknown'
-      console.error("❌ ERRO AO LISTAR FICHA TÉCNICA:", error);
-      const message =
-        error instanceof Error ? error.message : "Erro desconhecido.";
+      // 🔑 1.C: Tratamento de Erros
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({
+            message: "ID do produto pai inválido.",
+            details: error.issues,
+          });
+      }
       return res
         .status(500)
-        .json({
-          message: "Erro interno ao buscar a Ficha Técnica.",
-          details: message,
-        });
+        .json({ message: "Erro interno ao buscar a Ficha Técnica." });
     }
-  }
+  } /** Rota POST: Criar ou Substituir Ficha Técnica */
 
-  /**
-   * CRIAÇÃO ou SUBSTITUIÇÃO completa da Ficha Técnica de um produto (recebe um ARRAY de itens)
-   * Rota: POST /api/v1/fichatecnica/pai/:id_produto_pai
-   */
-  async storeOrUpdate(req: Request, res: Response): Promise<Response> {
-    const id_produto_pai = parseInt(req.params.id_produto_pai, 10);
-    const novosItens = req.body; // Array de itens
-
-    if (!Array.isArray(novosItens)) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "O corpo da requisição deve ser um array de itens da ficha técnica.",
-        });
-    }
-
+  public async storeOrUpdate(req: Request, res: Response): Promise<Response> {
     try {
+      const usuario = req.usuario as JwtPayload;
+      const id_produto_pai = z
+        .number()
+        .int()
+        .positive()
+        .parse(parseInt(req.params.id_produto_pai, 10)); // 🔑 1.B: Validação Zod do Array de Itens
+
+      const novosItens = FichaTecnicaArraySchema.parse(req.body); // 🔑 2.D/R4: Passa o unidade_id
+
       const { itens, novoCusto } = await this.service.storeOrUpdate(
         id_produto_pai,
-        novosItens
-      );
+        novosItens,
+        usuario.unidade_id
+      ); // 🔑 1.E: Retorno padronizado (201 Created)
 
       return res.status(201).json({
-        message: `Ficha Técnica atualizada com sucesso. Novo Custo de Produção (CMP) do Produto Pai: R$ ${novoCusto.toFixed(
+        message: `Ficha Técnica atualizada com sucesso. Novo Custo: R$ ${novoCusto.toFixed(
           2
         )}`,
         itens_criados: itens,
         novo_custo_producao: novoCusto.toFixed(2),
       });
     } catch (error: unknown) {
-      console.error("❌ ERRO AO CRIAR/ATUALIZAR FICHA TÉCNICA:", error);
+      // 🔑 1.C: Tratamento de Erros (400, 404, 500)
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({
+            message: "Dados da Ficha Técnica inválidos.",
+            details: error.issues,
+          });
+      }
       const message =
         error instanceof Error ? error.message : "Erro desconhecido.";
-      if (message.includes("Produto Pai não encontrado")) {
-        return res.status(404).json({ message: message });
-      }
-      return res
-        .status(500)
-        .json({
-          message: "Erro interno na transação da Ficha Técnica.",
-          details: message,
-        });
+      const status = message.includes("não encontrado") ? 404 : 500;
+      return res.status(status).json({ message: message });
     }
-  }
+  } /** Rota PUT: Atualiza a QUANTIDADE de um item específico da Ficha Técnica */
 
-  /**
-   * Atualiza a QUANTIDADE de um item específico da Ficha Técnica
-   * Rota: PUT /api/v1/fichatecnica/item/:idItem
-   */
-  async updateItemFichaTecnica(req: Request, res: Response): Promise<Response> {
-    const idItem = parseInt(req.params.idItem, 10);
-    const { quantidade_necessaria } = req.body;
-
-    if (
-      !quantidade_necessaria ||
-      isNaN(parseFloat(quantidade_necessaria)) ||
-      parseFloat(quantidade_necessaria) <= 0
-    ) {
-      return res
-        .status(400)
-        .json({
-          message: "Quantidade necessária deve ser um valor numérico positivo.",
-        });
-    }
-
+  public async updateItemFichaTecnica(
+    req: Request,
+    res: Response
+  ): Promise<Response> {
     try {
+      const usuario = req.usuario as JwtPayload;
+      const idItem = z
+        .number()
+        .int()
+        .positive()
+        .parse(parseInt(req.params.idItem, 10)); // 🔑 1.B: Validação Zod
+      const { quantidade_necessaria } = QuantidadeUpdateSchema.parse(req.body);
+
       const { item, novoCusto } = await this.service.updateItemQuantidade(
         idItem,
-        parseFloat(quantidade_necessaria)
-      );
+        quantidade_necessaria,
+        usuario.unidade_id // 🔑 2.D/R4: Passa o unidade_id
+      ); // 🔑 1.E: Resposta
 
       return res.status(200).json({
-        message: `Quantidade do item ${idItem} atualizada. Novo Custo de Produção (CMP) do Produto Pai: R$ ${novoCusto.toFixed(
+        message: `Quantidade do item ${idItem} atualizada. Novo Custo: R$ ${novoCusto.toFixed(
           2
         )}`,
         item_atualizado: item,
         novo_custo_producao: novoCusto.toFixed(2),
       });
     } catch (error: unknown) {
-      console.error("❌ ERRO AO ATUALIZAR ITEM DA FICHA TÉCNICA:", error);
+      // 🔑 1.C: Tratamento de Erros
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Dados inválidos.", details: error.issues });
+      }
       const message =
         error instanceof Error ? error.message : "Erro desconhecido.";
-      if (message.includes("Item da Ficha Técnica não encontrado")) {
-        return res.status(404).json({ message: message });
-      }
-      return res
-        .status(500)
-        .json({
-          message: "Erro interno ao atualizar item da Ficha Técnica.",
-          details: message,
-        });
+      const status = message.includes("não encontrado") ? 404 : 500;
+      return res.status(status).json({ message: message });
     }
-  }
+  } /** Rota DELETE: Deleta um item específico da Ficha Técnica. */
 
-  /**
-   * Deleta um item específico da Ficha Técnica.
-   * Rota: DELETE /api/v1/fichatecnica/item/:idItem
-   */
-  async deleteItemFichaTecnica(req: Request, res: Response): Promise<Response> {
-    const idItem = parseInt(req.params.idItem, 10);
-
+  public async deleteItemFichaTecnica(
+    req: Request,
+    res: Response
+  ): Promise<Response> {
     try {
+      const usuario = req.usuario as JwtPayload;
+      const idItem = z
+        .number()
+        .int()
+        .positive()
+        .parse(parseInt(req.params.idItem, 10));
+
       const { id_removido, id_produto_pai, novoCusto } =
-        await this.service.deleteItem(idItem);
+        await this.service.deleteItem(idItem, usuario.unidade_id); // 🔑 2.D/R4: Passa o unidade_id // 🔑 1.E: Resposta
 
       return res.status(200).json({
         message: `Item da Ficha Técnica removido com sucesso. Novo CMP do Produto Pai ${id_produto_pai}: R$ ${novoCusto.toFixed(
@@ -157,22 +170,13 @@ class FichaTecnicaController {
         novo_custo_producao: novoCusto.toFixed(2),
       });
     } catch (error: unknown) {
-      console.error("❌ ERRO AO DELETAR ITEM DA FICHA TÉCNICA:", error);
+      // 🔑 1.C: Tratamento de Erros
       const message =
         error instanceof Error ? error.message : "Erro desconhecido.";
-      if (message.includes("Item da Ficha Técnica não encontrado")) {
-        return res.status(404).json({ message: message });
-      }
-      return res
-        .status(500)
-        .json({
-          message: "Erro interno ao deletar item da Ficha Técnica.",
-          details: message,
-        });
+      const status = message.includes("não encontrado") ? 404 : 500;
+      return res.status(status).json({ message: message });
     }
   }
 }
 
-// O TypeScript não permite exportar a instância diretamente como o JavaScript (module.exports)
-// Você deve usar 'export default' ou 'export const'
 export default new FichaTecnicaController();

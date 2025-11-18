@@ -1,5 +1,3 @@
-// src/services/AuthService.ts
-
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -7,6 +5,7 @@ import Usuario from "../models/Usuario";
 import Cargo from "../models/Cargo";
 import Permissao from "../models/Permissao";
 
+// Interface para os dados de login recebidos
 interface LoginPayload {
   email: string;
   senha_hash: string;
@@ -36,8 +35,7 @@ export class AuthService {
           include: [
             {
               model: Permissao,
-              as: "permissoes",
-              // Traz apenas o nome da permissão para o payload do token ser mais leve
+              as: "permissoes", // Traz apenas o nome da permissão para o payload do token ser mais leve
               attributes: ["nome_permissao"],
             },
           ],
@@ -47,19 +45,12 @@ export class AuthService {
 
     if (!usuario || !usuario.cargo) {
       throw new Error("Usuário ou senha inválidos.");
-    } // Cast 'as any' é um workaround comum para tipagem de include do Sequelize
-
-    // 🔑 Validação de Senha (CRÍTICO em produção)
-    // 💡 Implementação final deve DESCOMENTAR e usar a senha enviada
-    // const senhaValida = await bcrypt.compare(senha_hash, usuario.senha_hash);
-    // if (!senhaValida) {
-    //    throw new Error("Usuário ou senha inválidos.");
-    // }
+    } // 🔑 Validação de Senha (CRÍTICO em produção) // A linha a seguir deve ser descomentada no ambiente final para validação real // const senhaValida = await bcrypt.compare(senha_hash, usuario.senha_hash); // if (!senhaValida) { //    throw new Error("Usuário ou senha inválidos."); // } // Nota: O Cast 'as any' é um workaround comum do Sequelize para acesso a includes.
 
     const token = this.gerarToken(usuario as any); // Retorna o objeto Usuario completo com os dados de Cargo/Permissões
 
     return { token, usuario: usuario as any };
-  } // Cast 'usuario' para 'any' para acesso simplificado de propriedades aninhadas
+  }
 
   private gerarToken(usuario: any): string {
     const secret = process.env.JWT_SECRET || "seu-segredo-super-secreto";
@@ -68,7 +59,6 @@ export class AuthService {
         "ALERTA: Usando chave JWT padrão. Defina JWT_SECRET em .env"
       );
     } // 🔑 CORREÇÃO R12: Extrai o array de permissões // Mapeia o array de objetos 'Permissao' para um array de strings
-
     const permissoes: string[] = usuario.cargo?.permissoes
       ? usuario.cargo.permissoes.map(
           (p: { nome_permissao: string }) => p.nome_permissao

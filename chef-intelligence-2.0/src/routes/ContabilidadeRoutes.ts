@@ -3,7 +3,7 @@
 import { Router } from "express";
 import ContabilidadeController from "../controllers/ContabilidadeController";
 import { authMiddleware } from "../Middlewares/authMiddleware";
-import { rbacMiddleware } from "../Middlewares/rbacMiddleware";
+import { podeAcessar } from "../Middlewares/rbacMiddleware";
 
 const contabilidadeRouter = Router();
 

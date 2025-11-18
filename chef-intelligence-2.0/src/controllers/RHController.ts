@@ -3,6 +3,8 @@
 import { Request, Response } from "express";
 import { RHService } from "../services/RHService";
 import { EscalaService } from "../services/EscalaService";
+import { StatusCodes } from "http-status-codes"; // Adicionado StatusCodes
+import { z, ZodError } from "zod"; // Adicionado ZodError
 
 // Tipos necessários (adicionados para garantir a coerência)
 import {
@@ -10,17 +12,18 @@ import {
   IHistoricoPerformance,
   IRegraColaborador,
   IColaboradorBase,
-} from "../config/types";
-import { z } from "zod";
+} from "../config/types"; // Importe seus tipos
 
 // Schemas Zod (Exemplo para fins de tipagem)
 const perfilIdealSchema = z.object({
   cargo_id: z.number().int().positive(),
+  descricao: z.string().min(1),
   // ... outras propriedades
 });
 
 const performanceSchema = z.object({
   colaborador_id: z.number().int().positive(),
+  data_avaliacao: z.string().date(),
   // ... outras propriedades
 });
 
@@ -28,7 +31,7 @@ export class RHController {
   private rhService: RHService;
   private escalaService: EscalaService;
 
-  // ✅ CORREÇÃO TS2554 e TS2564: Construtor recebe e atribui as dependências
+  // Regra 1.A: Construtor recebe e atribui as dependências
   constructor(
     rhServiceInstance: RHService,
     escalaServiceInstance: EscalaService
@@ -39,67 +42,135 @@ export class RHController {
 
   async definirPerfilIdeal(req: Request, res: Response): Promise<Response> {
     try {
+      // Regra 1.B: Validação Zod
       const perfil = perfilIdealSchema.parse(req.body) as IPerfilIdeal;
+
+      // Regra 1.D/1.F: Delega ao Service
       await this.rhService.definirPerfilIdeal(perfil);
+
+      // Regra 1.E: Resposta 201
       return res
-        .status(201)
+        .status(StatusCodes.CREATED)
         .json({ message: "Perfil Ideal definido com sucesso." });
     } catch (error) {
-      return res.status(500).json({ error: "Falha ao definir perfil ideal." });
+      // Regra 1.C: Tratamento de Erros
+      if (error instanceof ZodError) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          error: "Erro de Validação: Dados de Perfil Ideal inválidos.",
+          details: error.errors,
+        });
+      }
+      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+        error: (error as Error).message || "Falha ao definir perfil ideal.",
+      });
     }
   }
 
   async registrarPerformance(req: Request, res: Response): Promise<Response> {
     try {
+      // Regra 1.B: Validação Zod
       const data = performanceSchema.parse(req.body) as IHistoricoPerformance;
+
+      // Regra 1.D/1.F: Delega ao Service
       await this.rhService.registrarPerformance(data);
-      return res.status(201).json({ message: "Performance registrada." });
+
+      // Regra 1.E: Resposta 201
+      return res
+        .status(StatusCodes.CREATED)
+        .json({ message: "Performance registrada." });
     } catch (error) {
-      return res.status(500).json({ error: "Falha ao registrar performance." });
+      // Regra 1.C: Tratamento de Erros
+      if (error instanceof ZodError) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          error: "Erro de Validação: Dados de Performance inválidos.",
+          details: error.errors,
+        });
+      }
+      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+        error: (error as Error).message || "Falha ao registrar performance.",
+      });
     }
   }
 
   async gerarEscala(req: Request, res: Response): Promise<Response> {
     try {
-      // Aqui você pode adicionar a validação Zod para os dados de escala
-      const { demanda, regras, colaboradores } = req.body as {
+      // Validação Zod simplificada (aqui pode ser mais complexa)
+      const { demanda, regras, colaboradores } = z
+        .object({
+          demanda: z.any(),
+          regras: z.array(z.any()),
+          colaboradores: z.array(z.any()),
+        })
+        .parse(req.body) as {
         demanda: any;
         regras: IRegraColaborador[];
         colaboradores: IColaboradorBase[];
       };
 
-      // ✅ CORREÇÃO TS2341: Acessa a funcionalidade do EscalaService DIRETAMENTE
+      // Regra 1.D/1.F: Delega ao Service
       const escalaSugerida = await this.escalaService.gerarEscalaOtimizada(
         demanda,
         regras,
         colaboradores
       );
 
-      return res.status(200).json({
+      // Regra 1.E: Resposta 200
+      return res.status(StatusCodes.OK).json({
         message: "Escala algorítmica sugerida com checagem R13 (Treinamento).",
         escala: escalaSugerida,
       });
     } catch (error) {
-      return res.status(500).json({ error: "Falha ao gerar escala." });
+      // Regra 1.C: Tratamento de Erros
+      if (error instanceof ZodError) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          error:
+            "Erro de Validação: Dados de entrada para geração de escala inválidos.",
+          details: error.errors,
+        });
+      }
+      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+        error: (error as Error).message || "Falha ao gerar escala.",
+      });
     }
   }
 
   // Exemplo de aprovação (R12)
   async aprovarEscala(req: Request, res: Response): Promise<Response> {
-    const escalaId = parseInt(req.params.id, 10);
-    const gerenteId = req.body.gerente_id;
+    try {
+      const escalaId = parseInt(req.params.id, 10);
+      const gerenteId = z
+        .object({ gerente_id: z.number().int().positive() })
+        .parse(req.body).gerente_id;
 
-    // Supondo que aprovarEscala seja um método em EscalaService
-    const escalaAprovada = await this.escalaService.aprovarEscala(
-      escalaId,
-      gerenteId
-    );
+      // Validação manual do ID
+      if (isNaN(escalaId) || escalaId <= 0) {
+        return res
+          .status(StatusCodes.BAD_REQUEST)
+          .json({ message: "ID de escala inválido." });
+      }
 
-    return res
-      .status(200)
-      .json({
+      // Regra 1.D/1.F: Delega ao Service
+      const escalaAprovada = await this.escalaService.aprovarEscala(
+        escalaId,
+        gerenteId
+      );
+
+      // Regra 1.E: Resposta 200
+      return res.status(StatusCodes.OK).json({
         message: "Escala aprovada com sucesso.",
         escala: escalaAprovada,
       });
+    } catch (error) {
+      // Regra 1.C: Tratamento de Erros
+      if (error instanceof ZodError) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          error: "Erro de Validação: ID do Gerente inválido.",
+          details: error.errors,
+        });
+      }
+      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+        error: (error as Error).message || "Falha ao aprovar escala.",
+      });
+    }
   }
 }

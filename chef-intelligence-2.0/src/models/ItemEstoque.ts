@@ -1,12 +1,13 @@
-// src/models/ItemEstoque.ts (CORRIGIDO)
-
 import { DataTypes, Model, Optional, ModelCtor, Sequelize } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory } from "../config/types";
+import Unidade from "./Unidade";
 
 // R1. Interface para Atributos
 export interface ItemEstoqueAttributes {
-  id_produto: number;
+  id_item: number;
+  unidade_id: number;
+  id_produto: number; // Mapeia para id_item via getter/field
   nome: string;
   unidade_medida: string;
   estoque_atual: number;
@@ -14,12 +15,15 @@ export interface ItemEstoqueAttributes {
   preco_custo_unitario: number;
   preco_venda: number;
   is_vendavel: boolean;
-  is_pre_pronto: boolean; // ⬅️ CORRIGIDO (Para corresponder ao Controller e à lógica original)
+  is_pre_pronto: boolean;
   createdAt?: Date;
   updatedAt?: Date;
+  saldo_atual: number; // Atributo virtual (R11)
+  pronto_pedido: number; // Atributo virtual (R11)
+  tipo_item: "INGREDIENTE" | "PRODUCAO" | "PRODUTO_FINAL";
 }
 
-// R2. Interface para Criação (Atributos opcionais na criação)
+// R2. Interface para Criação
 export interface ItemEstoqueCreationAttributes
   extends Optional<
     ItemEstoqueAttributes,
@@ -28,7 +32,6 @@ export interface ItemEstoqueCreationAttributes
     | "preco_custo_unitario"
     | "createdAt"
     | "updatedAt"
-    // is_pre_pronto NÃO está aqui pois o Controller fornece um valor (false) se for omitido.
   > {}
 
 // R3. Interface do Modelo
@@ -41,12 +44,29 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
   connection.define<ItemEstoqueModel>(
     "ItemEstoque",
     {
-      id_produto: {
+      // 1. CHAVE PRIMÁRIA (R4, R1): id_item da interface mapeado para id_produto do BD
+      id_item: {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true,
         field: "id_produto",
       },
+
+      // 🔑 FIX CRÍTICO: id_produto definido como VIRTUAL para satisfazer o TS2345
+      id_produto: {
+        type: DataTypes.VIRTUAL,
+      },
+
+      // 2. R4 FIX: Campo unidade_id
+      unidade_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: Unidade,
+          key: "id_unidade",
+        },
+      },
+
       nome: {
         type: DataTypes.STRING(100),
         allowNull: false,
@@ -56,6 +76,21 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         type: DataTypes.STRING(10),
         allowNull: false,
       },
+
+      // 3. TIPO_ITEM FIX: Adicionado campo tipo_item
+      tipo_item: {
+        type: DataTypes.ENUM("INGREDIENTE", "PRODUCAO", "PRODUTO_FINAL"),
+        allowNull: false,
+      },
+
+      // 🔑 R11 FIX: Campos Virtuais definidos como VIRTUAL para satisfazer o TS2345
+      saldo_atual: {
+        type: DataTypes.VIRTUAL,
+      },
+      pronto_pedido: {
+        type: DataTypes.VIRTUAL,
+      },
+
       estoque_atual: {
         type: DataTypes.DECIMAL(10, 3),
         allowNull: false,
@@ -82,7 +117,6 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         defaultValue: false,
       },
       is_pre_pronto: {
-        // ⬅️ CORRIGIDO
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: false,
@@ -92,12 +126,31 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
       tableName: "PRODUTOS",
       timestamps: true,
       modelName: "ItemEstoque",
+      // Definição dos métodos de leitura dos campos virtuais
+      getterMethods: {
+        id_produto(): number {
+          return (this as any).getDataValue("id_item");
+        },
+        saldo_atual(): number {
+          return (this as any).getDataValue("estoque_atual");
+        },
+        pronto_pedido(): number {
+          const estoqueAtual = (this as any).getDataValue("estoque_atual") || 0;
+          const estoqueMinimo =
+            (this as any).getDataValue("estoque_minimo") || 0;
+          return estoqueAtual - estoqueMinimo;
+        },
+      },
     }
   );
 
 // R5: Método estático para associações
 (ItemEstoque as any).associate = function (models: IModelFactory) {
-  // Associações serão definidas em breve
+  ItemEstoque.belongsTo(models.Unidade, {
+    foreignKey: "unidade_id",
+    targetKey: "id_unidade",
+    as: "unidade",
+  });
 };
 
 export default ItemEstoque;

@@ -1,9 +1,7 @@
-// src/models/Permissao.ts
-
 import { DataTypes, Model, Optional } from "sequelize";
-import { connection } from "../config/sequelize";
+import { connection } from "config/sequelize";
 
-// O nome da permissão (ex: "ESTOQUE_ESCRITA", "FINANCEIRO_LEITURA")
+// O nome da permissão (ex.: "ESTOQUE_ESCRITA", "FINANCEIRO_LEITURA")
 interface PermissaoAttributes {
   id_permissao: number;
   nome_permissao: string;
@@ -29,6 +27,7 @@ export default class Permissao
   public readonly updatedAt!: Date;
 }
 
+// Inicialização do Modelo
 Permissao.init(
   {
     id_permissao: {
@@ -37,9 +36,9 @@ Permissao.init(
       primaryKey: true,
     },
     nome_permissao: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.STRING(100),
       allowNull: false,
-      unique: true, // Garante que não haverá duplicidade de nomes
+      unique: true, // Garante que não haverá duplicidade de nomes de permissão
     },
     descricao: {
       type: DataTypes.STRING(255),
@@ -50,5 +49,6 @@ Permissao.init(
     sequelize: connection,
     tableName: "Permissoes",
     underscored: true,
+    timestamps: true,
   }
 );

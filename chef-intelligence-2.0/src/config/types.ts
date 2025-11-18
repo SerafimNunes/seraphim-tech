@@ -63,3 +63,27 @@ export type StatusAprovacaoCompras =
   | "REPROVADO"
   | "CANCELADO"
   | "FINALIZADO";
+
+// Enumeração para ações de RBAC (R12)
+export enum Acoes {
+  LEITURA = "leitura",
+  CRIACAO = "criacao",
+  ATUALIZACAO = "atualizacao",
+  DELECAO = "delecao",
+  APROVACAO = "aprovacao",
+  FECHAMENTO = "fechamento",
+}
+
+// Enumeração para recursos de RBAC (R12)
+export enum Recursos {
+  ESTOQUE = "estoque",
+  VENDAS = "vendas",
+  PRODUCAO = "producao",
+  COMPRAS = "compras",
+  FINANCEIRO = "financeiro",
+  RH = "rh",
+  ANALISE = "analise",
+  PLANEJAMENTO = "planejamento",
+  UNIDADE = "unidade",
+  USUARIO = "usuario",
+}

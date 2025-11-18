@@ -1,7 +1,10 @@
-// src/services/EstoqueContagemService.ts
+// src/services/EstoqueContagemService.ts (REFACTORADO PARA USAR ESTOQUE SERVICE)
 
 import { Transaction, Sequelize } from "sequelize";
 import { connection } from "../config/sequelize";
+// 🔑 Importa o Service Centralizado de Estoque
+import { EstoqueService } from "./EstoqueService";
+// 🔑 Mantém o import apenas para registro da contagem cega
 import EstoqueRegistroContagem, {
   EstoqueRegistroContagemCreationAttributes,
 } from "../models/EstoqueRegistroContagem";
@@ -12,26 +15,38 @@ interface ContagemPayload {
   id_produto: number;
   estoque_contado: number;
   colaborador_id: number;
+  observacoes?: string; // Adicionado para incluir na auditoria do movimento
 }
 
 export class EstoqueContagemService {
+  private estoqueService: EstoqueService;
+  /**
+   * 🔑 REGRA 1.A: Injeção de Dependência do EstoqueService.
+   */
+
+  constructor(estoqueService = new EstoqueService()) {
+    this.estoqueService = estoqueService;
+  }
   /**
    * Registra uma nova Contagem Cega (Inventário Físico) e ajusta o estoque.
-   * Esta é uma operação atômica e crítica que usa SERIALIZABLE lock.
+   * 🔑 Regra 1.D (Fluxo Transacional): A transação é iniciada e finalizada SOMENTE no Service.
    */
+
   public async registrarContagem(
     payload: ContagemPayload
   ): Promise<{ produto: ItemEstoqueModel; resultado_auditoria: any }> {
-    const { id_produto, estoque_contado, colaborador_id } = payload;
+    const { id_produto, estoque_contado, colaborador_id, observacoes } =
+      payload;
 
-    // 🔑 INÍCIO DA TRANSAÇÃO ATÔMICA com SERIALIZABLE lock
-    const transaction = await connection.transaction({
-      isolationLevel: (Sequelize as any).Transaction.ISOLATION_LEVELS
-        .SERIALIZABLE,
-    });
+    let transaction: Transaction | null = null;
 
     try {
-      // 1. Busca o Produto com Lock de Atualização
+      // 1. INÍCIO DA TRANSAÇÃO ATÔMICA com SERIALIZABLE lock
+      transaction = await connection.transaction({
+        isolationLevel: (Sequelize as any).Transaction.ISOLATION_LEVELS
+          .SERIALIZABLE,
+      }); // 2. Busca o Produto com Lock de Atualização
+
       const produto = (await ItemEstoque.findByPk(id_produto, {
         attributes: [
           "id_produto",
@@ -40,15 +55,14 @@ export class EstoqueContagemService {
           "preco_custo_unitario",
           "unidade_medida",
         ],
-        lock: transaction.LOCK.UPDATE, // Garante que o estoque_atual não mude
+        lock: transaction.LOCK.UPDATE,
         transaction,
       })) as ItemEstoqueModel | null;
 
       if (!produto) {
-        throw new Error("Produto não encontrado.");
-      }
+        throw new Error(`Produto com ID ${id_produto} não encontrado.`);
+      } // --- 3. CÁLCULOS CRÍTICOS (Discrepância) ---
 
-      // --- 2. CÁLCULOS CRÍTICOS (Usando Decimal.js) ---
       const estoqueTeorico = new Decimal(
         produto.estoque_atual as unknown as string
       );
@@ -57,15 +71,9 @@ export class EstoqueContagemService {
         produto.preco_custo_unitario as unknown as string
       );
 
-      // Diferença: Contado - Teórico
       const discrepancia = estoqueFisico.minus(estoqueTeorico);
-
-      // Custo da Discrepância: Diferença * Custo Unitário (usando .abs() para valor absoluto)
       const custoDiscrepancia = discrepancia.abs().times(custoUnitario);
-
-      const tipoDiscrepancia = discrepancia.isNegative() ? "Perda" : "Sobra";
-
-      // 3. REGISTRA A CONTAGEM (Auditoria)
+      const tipoDiscrepancia = discrepancia.isNegative() ? "PERDA" : "SOBRA"; // -------------------------------------------- // 4. REGISTRA A CONTAGEM Cega (Auditoria do Processo)
       const registroData: EstoqueRegistroContagemCreationAttributes = {
         id_produto,
         estoque_contado: estoqueFisico.toNumber(),
@@ -74,35 +82,57 @@ export class EstoqueContagemService {
         custo_discrepancia: custoDiscrepancia.toNumber(),
         colaborador_id,
       };
+      await EstoqueRegistroContagem.create(registroData, { transaction }); // 5. 🔑 DELEGAÇÃO: AJUSTE DE ESTOQUE (Movimento)
 
-      await EstoqueRegistroContagem.create(registroData, { transaction });
+      if (discrepancia.isZero()) {
+        // Nenhuma alteração no estoque se a discrepância for zero.
+        // O produto não precisa ser atualizado, apenas a contagem registrada.
+      } else if (discrepancia.isPositive()) {
+        // Ajuste de SOBERAS (ENTRADA)
+        await this.estoqueService.entradaEstoque(
+          produto,
+          discrepancia.toNumber(), // Quantidade que entra
+          custoUnitario.toNumber(), // CMP atual (custo da entrada é o CMP)
+          "AJUSTE_SOBRA",
+          observacoes || "Ajuste de estoque por contagem cega (SOBRA).",
+          `Contagem ID: ${registroData.id_produto}`,
+          colaborador_id,
+          transaction // Passa a transação
+        );
+      } else {
+        // Ajuste de PERDAS (SAÍDA)
+        await this.estoqueService.saidaEstoque(
+          produto,
+          discrepancia.abs().toNumber(), // Quantidade que sai
+          "AJUSTE_PERDA",
+          observacoes || "Ajuste de estoque por contagem cega (PERDA).",
+          `Contagem ID: ${registroData.id_produto}`,
+          colaborador_id,
+          transaction // Passa a transação
+        );
+      } // 6. Commit da Transação
+      await transaction.commit(); // 7. Retorno dos dados para o Controller
 
-      // 4. ATUALIZAÇÃO CRÍTICA DO ESTOQUE (Ajuste)
-      // O estoque atual do produto é ajustado para o valor contado
-      await produto.update(
-        {
-          estoque_atual: estoqueFisico.toNumber(),
-        },
-        { transaction }
-      );
-
-      // 5. Commit da Transação
-      await transaction.commit();
-
-      // 6. Retorno dos dados para o Controller
+      const produtoFinal = await this.findById(id_produto); // Busca o produto atualizado
       const resultado_auditoria = {
         discrepancia: `${discrepancia.abs().toFixed(3)} ${
           produto.unidade_medida
         } de ${tipoDiscrepancia}.`,
         ajuste_financeiro: `R$ ${custoDiscrepancia.toFixed(2)}`,
-        estoque_atual_apos_ajuste: estoqueFisico.toFixed(3),
+        estoque_atual_apos_ajuste: produtoFinal?.estoque_atual, // Retorna o valor final
       };
 
-      return { produto, resultado_auditoria };
+      return { produto: produtoFinal!, resultado_auditoria };
     } catch (error) {
-      await transaction.rollback();
-      // Lança o erro para o Controller
+      // 8. Rollback da Transação
+      if (transaction) {
+        await transaction.rollback();
+      }
       throw error;
     }
+  } // 🔑 Adicionado método findById (simples) para buscar o produto atualizado após o commit
+
+  private async findById(id_produto: number): Promise<ItemEstoqueModel | null> {
+    return ItemEstoque.findByPk(id_produto);
   }
 }

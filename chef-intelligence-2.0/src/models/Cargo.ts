@@ -1,11 +1,9 @@
-// src/models/Cargo.ts
-
 import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory } from "../config/types";
 import { Colaborador } from "./Colaborador";
-//import { ColaboradorModel } from "./Colaborador";
 import Permissao from "./Permissao";
+
 export interface CargoAttributes {
   id_cargo: number;
   nome_cargo: string;
@@ -21,7 +19,7 @@ export interface CargoCreationAttributes
 export interface CargoModel
   extends Model<CargoAttributes, CargoCreationAttributes>,
     CargoAttributes {
-  permissoes?: Permissao[]; // R12: Associação com Permissões
+  permissoes?: Permissao[]; // R12: Associação com Permissões (para busca do AuthService)
 }
 
 // ✅ CORREÇÃO TS2314/TS2353: Uso correto de genéricos e ModelOptions no define
@@ -48,8 +46,7 @@ const Cargo: ModelCtor<CargoModel> = connection.define<
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
     },
-  },
-  // Correção do erro TS2353
+  }, // Correção do erro TS2353
   {
     tableName: "CARGOS",
     sequelize: connection, // Propriedade necessária para o define da instância
@@ -63,12 +60,15 @@ const Cargo: ModelCtor<CargoModel> = connection.define<
   Cargo.hasMany(models.Colaborador as ModelCtor<Colaborador>, {
     foreignKey: "cargo_Id",
     as: "colaboradores",
-  });
-
+  }); // 🔑 CRÍTICO R12: Relacionamento N:M com Permissão
   Cargo.belongsToMany(models.Permissao, {
-    through: "CargoPermissoes", //tabela pivô
+    through: "CargoPermissoes", // tabela pivô
     foreignKey: "cargo_id",
-    as: "permissoes", //nome crítico: usado para busca no AuthService
+    as: "permissoes", // 🔑 ALIAS CRÍTICO: usado para busca aninhada no AuthService
+  }); // 🔑 NOVO: Adiciona a associação com Usuario (HasMany)
+  Cargo.hasMany(models.Usuario, {
+    foreignKey: "cargo_id",
+    as: "usuarios",
   });
 };
 

@@ -1,321 +1,227 @@
-// src/controllers/ProducaoController.ts
+// src/controllers/ProducaoController.ts (Refatorado - SRP e Zod Corrigido)
 
 import { Request, Response } from "express";
-import { connection } from "../config/sequelize";
-import { ProducaoService } from "../services/ProducaoService"; // 🔑 Importa o Serviço
+import { ProducaoService } from "../services/ProducaoService";
+import { z, ZodError } from "zod";
+
+// ❌ REMOVIDO: import { connection } from "../config/sequelize";
+
+// --- Definição dos Schemas de Validação (Regra 1.B) ---
+
+const ProducaoStoreSchema = z.object({
+  id_produto_produzido: z.number().int().positive(),
+  quantidade_produzida: z.number().positive(),
+  colaborador_id_sugestao: z.number().int().positive(),
+  observacoes: z.string().optional().nullable(),
+});
+
+const ProducaoAcaoSchema = z.object({
+  colaborador_id_aprovacao: z.number().int().positive().optional(),
+  colaborador_id_separador: z.number().int().positive().optional(),
+  colaborador_id_conclusao: z.number().int().positive().optional(),
+  colaborador_id_cancelamento: z.number().int().positive().optional(),
+  observacoes: z.string().optional().nullable(),
+  observacoes_estoque: z.string().optional().nullable(),
+});
+
+// 🔑 CORREÇÃO TS (Linha 195): Enum sincronizado com o Service
+const PerdaStoreSchema = z.object({
+  id_produto: z.number().int().positive(),
+  quantidade_perdida: z.number().positive(),
+  tipo_perda: z.enum([
+    "QUEBRA",
+    "VALIDADE",
+    "ERRO_PRODUCAO",
+    "ERRO_VENDA",
+    "OUTROS",
+  ]),
+  colaborador_id: z.number().int().positive(),
+  observacoes: z.string().optional().nullable(),
+});
+
+// --- Controller Refatorado ---
 
 export class ProducaoController {
   private producaoService: ProducaoService;
 
-  constructor() {
-    this.producaoService = new ProducaoService();
+  constructor(service?: ProducaoService) {
+    this.producaoService = service || new ProducaoService();
   }
 
-  /**
-   * Rota 1: Sugestão de Produção Automática (Alerta de Estoque Mínimo)
-   * Rota: GET /api/v1/producao/alerta
-   */
+  // Helper para tratamento de erros (Regra 1.C)
+  private handleErrors(res: Response, error: unknown): Response {
+    if (error instanceof ZodError) {
+      // Erro 400 para falha de validação
+      return res
+        .status(400)
+        .json({
+          message: "Erro de validação de dados de entrada.",
+          details: error.issues,
+        });
+    }
+    // Erro 500 para outros erros, incluindo os de Service/DB
+    console.error("❌ ERRO INTERNO DO CONTROLADOR:", error);
+    return res.status(500).json({
+      error: "Erro interno do servidor.",
+      details: error instanceof Error ? error.message : "Erro desconhecido.",
+    });
+  }
+
+  /** Rota 1: Sugestão de Produção Automática */
   async suggestProduction(req: Request, res: Response): Promise<Response> {
     try {
       const sugestoes = await this.producaoService.suggestProduction();
       return res.status(200).json(sugestoes);
     } catch (error) {
-      console.error("❌ ERRO NA SUGESTÃO DE PRODUÇÃO:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao sugerir ordens de produção.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 2: Listagem de Ordens de Produção
-   * Rota: GET /api/v1/producao?status=...
-   */
+  /** Rota 2: Listagem de Ordens de Produção */
   async index(req: Request, res: Response): Promise<Response> {
-    const { status } = req.query; // Filtro opcional
-
     try {
+      const { status } = req.query;
       const registros = await this.producaoService.index(status as string);
       return res.status(200).json(registros);
     } catch (error) {
-      console.error("❌ ERRO AO LISTAR PRODUÇÕES:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao listar ordens de produção.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 3: Criação manual de uma OP (Status SUGERIDO)
-   * Rota: POST /api/v1/producao
-   * @body { id_produto_produzido, quantidade_produzida, colaborador_id_sugestao }
-   */
+  /** Rota 3: Criação manual de uma OP (Status SUGERIDO) */
   async store(req: Request, res: Response): Promise<Response> {
-    const {
-      id_produto_produzido,
-      quantidade_produzida,
-      colaborador_id_sugestao,
-      observacoes,
-    } = req.body;
-
-    if (
-      !id_produto_produzido ||
-      !quantidade_produzida ||
-      !colaborador_id_sugestao
-    ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "ID do Produto, Quantidade e ID do Colaborador são obrigatórios.",
-        });
-    }
-
-    const transaction = await connection.transaction();
     try {
+      // 🔑 Validação Zod
+      const dadosValidados = ProducaoStoreSchema.parse(req.body);
+
+      // ❌ Regra 1.D: Transação removida. O Service lida com o DB.
       const registro = await this.producaoService.createProducao(
-        {
-          id_produto_produzido,
-          quantidade_produzida,
-          colaborador_id_sugestao,
-          observacoes,
-        },
-        transaction
+        dadosValidados
       );
-      await transaction.commit();
 
       return res.status(201).json({
         message: `Ordem de Produção (OP) SUGERIDA com sucesso.`,
         registro,
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error("❌ ERRO NA CRIAÇÃO DE PRODUÇÃO:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao criar a ordem de produção.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 4: Aprovação (Gestor) - Início da Produção (Gera Requisição de Insumos)
-   * Rota: PATCH /api/v1/producao/:id/aprovar
-   * @body { colaborador_id_aprovacao }
-   */
+  /** Rota 4: Aprovação (Gestor) - Início da Produção */
   async startProduction(req: Request, res: Response): Promise<Response> {
-    const id = parseInt(req.params.id);
-    const { colaborador_id_aprovacao } = req.body;
-
-    if (isNaN(id) || !colaborador_id_aprovacao) {
-      return res
-        .status(400)
-        .json({ error: "ID da OP e ID do Aprovador são obrigatórios." });
-    }
-
-    const transaction = await connection.transaction();
     try {
+      const id = z.number().int().positive().parse(parseInt(req.params.id));
+      const { colaborador_id_aprovacao } = ProducaoAcaoSchema.pick({
+        colaborador_id_aprovacao: true,
+      }).parse(req.body);
+
       const registro = await this.producaoService.startProduction(
         id,
-        colaborador_id_aprovacao,
-        transaction
+        colaborador_id_aprovacao!
       );
-      await transaction.commit();
 
       return res.status(200).json({
         message: `Ordem de Produção (OP) nº ${id} APROVADA. Requisição de Insumos gerada.`,
         registro,
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error("❌ ERRO NA APROVAÇÃO DE PRODUÇÃO:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao aprovar a ordem de produção.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 5: Entrega/Confirmação (Estoquista/João) - Abate os insumos do Estoque.
-   * Rota: PATCH /api/v1/producao/:id/entregar-insumos
-   * @body { colaborador_id_separador, observacoes_estoque }
-   */
+  /** Rota 5: Entrega/Confirmação (Estoquista) - Abate os insumos do Estoque. */
   async deliverInsumos(req: Request, res: Response): Promise<Response> {
-    const id = parseInt(req.params.id);
-    const { colaborador_id_separador, observacoes_estoque } = req.body;
-
-    if (isNaN(id) || !colaborador_id_separador) {
-      return res
-        .status(400)
-        .json({ error: "ID da OP e ID do Separador são obrigatórios." });
-    }
-
-    const transaction = await connection.transaction();
     try {
+      const id = z.number().int().positive().parse(parseInt(req.params.id));
+      const { colaborador_id_separador, observacoes_estoque } =
+        ProducaoAcaoSchema.pick({
+          colaborador_id_separador: true,
+          observacoes_estoque: true,
+        }).parse(req.body);
+
+      // 🔑 CORREÇÃO TS (Linha 153): Converte undefined para null, garantindo string | null para o Service
+      const observacoesToService = observacoes_estoque ?? null;
+
       const registro = await this.producaoService.deliverInsumos(
         id,
-        colaborador_id_separador,
-        observacoes_estoque,
-        transaction
+        colaborador_id_separador!,
+        observacoesToService
       );
-      await transaction.commit();
 
       return res.status(200).json({
         message: `Insumos para OP nº ${id} ENTREGUES. Status alterado para EM_PRODUCAO.`,
         registro,
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error("❌ ERRO NA ENTREGA DE INSUMOS:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao entregar os insumos.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 6: Conclusão (Cozinheiro/Gestor) - Adiciona o Produto Final ao Estoque.
-   * Rota: PATCH /api/v1/producao/:id/concluir
-   * @body { colaborador_id_conclusao }
-   */
+  /** Rota 6: Conclusão (Cozinheiro/Gestor) - Adiciona o Produto Final ao Estoque. */
   async finishProduction(req: Request, res: Response): Promise<Response> {
-    const id = parseInt(req.params.id);
-    const { colaborador_id_conclusao } = req.body;
-
-    if (isNaN(id) || !colaborador_id_conclusao) {
-      return res
-        .status(400)
-        .json({
-          error: "ID da OP e ID do Colaborador de Conclusão são obrigatórios.",
-        });
-    }
-
-    const transaction = await connection.transaction();
     try {
+      const id = z.number().int().positive().parse(parseInt(req.params.id));
+      const { colaborador_id_conclusao } = ProducaoAcaoSchema.pick({
+        colaborador_id_conclusao: true,
+      }).parse(req.body);
+
       const registro = await this.producaoService.finishProduction(
         id,
-        colaborador_id_conclusao,
-        transaction
+        colaborador_id_conclusao!
       );
-      await transaction.commit();
 
       return res.status(200).json({
         message: `Ordem de Produção (OP) nº ${id} CONCLUÍDA. Estoque de produto final atualizado.`,
         registro,
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error("❌ ERRO NA CONCLUSÃO DE PRODUÇÃO:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao concluir a ordem de produção.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 7: Registro de Perda de Estoque (Baixa Manual)
-   * Rota: POST /api/v1/producao/perda
-   * @body { id_produto, quantidade_perdida, tipo_perda, colaborador_id, observacoes }
-   */
+  /** Rota 7: Registro de Perda de Estoque (Baixa Manual) */
   async storePerda(req: Request, res: Response): Promise<Response> {
-    const payload = req.body;
-
-    if (
-      !payload.id_produto ||
-      !payload.quantidade_perdida ||
-      !payload.tipo_perda ||
-      !payload.colaborador_id
-    ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Campos obrigatórios: id_produto, quantidade_perdida, tipo_perda e colaborador_id.",
-        });
-    }
-
-    const transaction = await connection.transaction();
     try {
-      const registroPerda = await this.producaoService.createPerda(
-        payload,
-        transaction
-      );
-      await transaction.commit();
+      // 🔑 Validação Zod (Enum Corrigido)
+      const payload = PerdaStoreSchema.parse(req.body);
+
+      const registroPerda = await this.producaoService.createPerda(payload);
 
       return res.status(201).json({
         message: `Perda de ${payload.quantidade_perdida} registrada para o produto ${payload.id_produto}.`,
         registroPerda,
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error("❌ ERRO NO REGISTRO DE PERDA:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao registrar a perda.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 
-  /**
-   * Rota 8: Cancelamento de OP (Antes de EM_PRODUCAO)
-   * Rota: PATCH /api/v1/producao/:id/cancelar
-   * @body { colaborador_id_cancelamento, observacoes }
-   */
+  /** Rota 8: Cancelamento de OP */
   async cancelProduction(req: Request, res: Response): Promise<Response> {
-    const id = parseInt(req.params.id);
-    const { colaborador_id_cancelamento, observacoes } = req.body;
-
-    if (isNaN(id) || !colaborador_id_cancelamento) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "ID da OP e ID do Colaborador de Cancelamento são obrigatórios.",
-        });
-    }
-
-    const transaction = await connection.transaction();
     try {
+      const id = z.number().int().positive().parse(parseInt(req.params.id));
+      const { colaborador_id_cancelamento, observacoes } =
+        ProducaoAcaoSchema.pick({
+          colaborador_id_cancelamento: true,
+          observacoes: true,
+        }).parse(req.body);
+
+      // 🔑 CORREÇÃO TS (Linha 221): Converte undefined para null, garantindo string | null para o Service
+      const observacoesToService = observacoes ?? null;
+
       const registro = await this.producaoService.cancelProduction(
         id,
-        colaborador_id_cancelamento,
-        observacoes,
-        transaction
+        colaborador_id_cancelamento!,
+        observacoesToService
       );
-      await transaction.commit();
 
       return res.status(200).json({
         message: `Ordem de Produção nº ${id} CANCELADA com sucesso.`,
         registro,
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error("❌ ERRO NO CANCELAMENTO DE PRODUÇÃO:", error);
-      return res
-        .status(500)
-        .json({
-          error: "Erro ao cancelar a ordem de produção.",
-          details: (error as Error).message,
-        });
+      return this.handleErrors(res, error);
     }
   }
 }

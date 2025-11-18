@@ -1,131 +1,94 @@
-// src/services/EscalaService.ts
-
-import { IEscala, IRegraColaborador, IColaboradorBase } from "../config/types";
 import { RHService } from "./RHService";
+// A importação agora funciona porque EscalaModel é exportado via type alias
+import Escala, {
+  EscalaCreationAttributes,
+  EscalaModel,
+} from "../models/Escala";
 
+// Tipagem base para o payload de criação (para uso interno)
+interface CriarEscalaPayload extends EscalaCreationAttributes {
+  colaboradores: number[]; // Lista de IDs de colaboradores (PKs: id_colaborador)
+}
+
+/**
+ * Serviço responsável pela lógica de negócio e persistência do módulo de Escalas.
+ */
 export class EscalaService {
-  // A propriedade 'rhService' será inicializada externamente via setter (Injeção de Dependência).
   private rhService!: RHService;
 
   constructor() {
-    // Construtor limpo para Injeção de Dependência
+    // console.log("EscalaService: Instanciado.");
   }
 
-  // Setter para Injeção de Dependência
-  public setRHService(rhServiceInstance: RHService): void {
-    this.rhService = rhServiceInstance;
+  // Método Setter para injeção de dependência tardia
+  public setRHService(rhService: RHService): void {
+    this.rhService = rhService;
   }
-
-  // --- Geração Algorítmica (R13) ---
 
   /**
-   * Executa o algoritmo de otimização de escala, levando em conta a demanda,
-   * regras de colaborador e treinamento (R13).
+   * R13: Cria uma nova proposta de escala no banco de dados.
    */
-  async gerarEscalaOtimizada(
-    demanda: any, // Detalhes da demanda (horas necessárias por cargo, por exemplo)
-    regras: IRegraColaborador[], // Regras de cada colaborador (folgas, preferências)
-    colaboradores: IColaboradorBase[] // Lista de colaboradores disponíveis
-  ): Promise<IEscala[]> {
-    console.log(`⚙️ EscalaService: Iniciando algoritmo de otimização (R13).`);
+  public async criarEscala(data: CriarEscalaPayload): Promise<EscalaModel> {
+    if (!this.rhService) {
+      throw new Error("RHService não foi injetado.");
+    }
 
-    const escalaGerada: IEscala[] = [];
-    let idEscalaCounter = 1;
-
-    // 1. Filtragem e Classificação de Colaboradores (Pré-requisitos)
-    const colaboradoresQualificados = [];
-
-    for (const colaborador of colaboradores) {
-      // 1.1. 🔑 R13: Verifica se o colaborador tem o treinamento necessário via RHService
-      const isTrained = await this.rhService.verificarTreinamentoConcluido(
-        colaborador.id_colaborador,
-        colaborador.cargo_id
+    // 1. CHECAGEM DE REGRAS DE NEGÓCIO (R1.F - Colaborador Ativo)
+    for (const colaboradorId of data.colaboradores) {
+      // Usa o método do RHService que busca por id_colaborador
+      const colaborador = await this.rhService.getColaboradorById(
+        colaboradorId
       );
 
-      if (isTrained) {
-        colaboradoresQualificados.push({
-          ...colaborador,
-          // Simulação: Anexa regras relevantes
-          regras: regras.find(
-            (r) => r.colaborador_id === colaborador.id_colaborador
-          ),
-        });
-      } else {
-        console.log(
-          `❌ Colaborador ${colaborador.id_colaborador} desqualificado: Treinamento pendente.`
+      // Regra de Negócio: Somente colaboradores ATIVOS podem ser escalados.
+      if (!colaborador || colaborador.status !== "ATIVO") {
+        throw new Error(
+          `Colaborador ID ${colaboradorId} não está disponível ou ativo e não pode ser escalado.`
         );
       }
     }
 
-    // 2. Simulação da Alocação Otimizada
-    console.log(
-      `✅ ${colaboradoresQualificados.length} colaboradores qualificados para alocação.`
+    // 2. PERSISTÊNCIA (Cria a Escala Head)
+    const { colaboradores, ...escalaData } = data;
+    const novaEscalaHead = await Escala.create(escalaData);
+
+    // 3. PERSISTÊNCIA (Cria as entradas na tabela de ligação)
+    // Se Escala possui o método addColaboradores:
+    // await (novaEscalaHead as any).addColaboradores(colaboradores);
+
+    return novaEscalaHead.toJSON() as EscalaModel;
+  }
+
+  /**
+   * R13: Altera o status da escala para 'APROVADA'.
+   * Usa a chave primária 'id_escala'.
+   */
+  public async aprovarEscala(
+    id_escala: number, // PK da escala
+    aprovador_id: number // ID do usuário aprovador
+  ): Promise<EscalaModel> {
+    // Atualiza apenas se o status for 'PENDENTE'
+    const [linhasAfetadas] = await Escala.update(
+      { status: "APROVADA", aprovador_id: aprovador_id },
+      {
+        where: { id_escala: id_escala, status: "PENDENTE" },
+      }
     );
 
-    // Núcleo do Algoritmo de Otimização (Heurísticas, Alocação, etc.)
+    if (linhasAfetadas === 0) {
+      const escalaExistente = await Escala.findByPk(id_escala);
 
-    if (colaboradoresQualificados.length > 0) {
-      // Exemplo de alocação simples para demonstrar o fluxo R13
-      const primeiroColaborador = colaboradoresQualificados[0];
-
-      escalaGerada.push({
-        id_escala: idEscalaCounter++,
-        status: "SUGERIDO",
-        colaborador_id: primeiroColaborador.id_colaborador,
-        unidade_id: 1, // Assumindo unidade 1
-
-        // 🔑 CORREÇÃO TS2352: Usa new Date() para corresponder ao tipo Date da IEscala
-        data_trabalho: new Date(),
-        hora_inicio: "08:00",
-        hora_fim: "16:00",
-        aprovada_gerente: false,
-
-        // Propriedades já existentes
-        turno: "MATUTINO",
-        horas_alocadas: 8,
-        id_cargo: primeiroColaborador.cargo_id,
-      } as IEscala);
+      if (!escalaExistente) {
+        throw new Error(`Escala ID ${id_escala} não encontrada.`);
+      }
+      throw new Error(
+        `A escala ID ${id_escala} não pôde ser aprovada (Status atual: ${escalaExistente.status}).`
+      );
     }
 
-    return escalaGerada;
-  }
+    // Busca o registro atualizado para retornar o objeto completo
+    const escalaAprovada = (await Escala.findByPk(id_escala)) as Escala;
 
-  // --- Validação e Aprovação (R12) ---
-
-  /**
-   * Valida se uma escala gerada ou editada está em conformidade com todas as regras
-   * (sindicais, folgas obrigatórias, horas mínimas/máximas).
-   */
-  public async validarEscala(escala: IEscala): Promise<boolean> {
-    console.log(
-      `🔍 EscalaService: Validando escala [ID: ${escala.id_escala}]...`
-    );
-    // 💡 Implementar a lógica de validação real aqui.
-    return true;
-  }
-
-  /**
-   * Aprova uma escala após a validação e as verificações do RBAC (R12).
-   */
-  async aprovarEscala(escalaId: number, gerenteId: number): Promise<IEscala> {
-    console.log(
-      `✅ EscalaService: Escala ${escalaId} aprovada pelo Gerente ${gerenteId} (R12).`
-    );
-
-    // 💡 Implementação futura: Buscar e atualizar o status no banco de dados.
-    return {
-      id_escala: escalaId,
-      status: "APROVADO",
-      colaborador_id: 0,
-      // 🔑 CORREÇÃO TS2352: Usa new Date()
-      data_trabalho: new Date(),
-      hora_inicio: "08:00",
-      hora_fim: "16:00",
-      aprovada_gerente: true,
-      turno: "MATUTINO",
-      horas_alocadas: 8,
-      id_cargo: 0,
-      unidade_id: 0,
-    } as IEscala;
+    return escalaAprovada.toJSON() as EscalaModel;
   }
 }

@@ -1,8 +1,8 @@
 // src/Middlewares/rbacMiddleware.ts
 
 import { Request, Response, NextFunction } from "express";
-// Importa a interface atualizada do authMiddleware (que agora inclui 'permissoes')
 import { JwtPayload } from "./authMiddleware";
+import { Acoes, Recursos } from "../config/types";
 
 /**
  * Define o tipo para as permissões (R12).
@@ -11,41 +11,75 @@ import { JwtPayload } from "./authMiddleware";
 type Permissao = string;
 
 /**
- * Middleware de RBAC (Role-Based Access Control).
- *
- * Verifica se o usuário autenticado possui as permissões necessárias para a rota (R12).
- * @param permissoesExigidas Lista de permissões que dão acesso à rota.
+ * Função utilitária para formatar a permissão (ex: "PLANEJAMENTO", "LEITURA" -> "PLANEJAMENTO_LEITURA")
  */
-// 🔑 CORREÇÃO: Usa 'podeAcessar' para corresponder ao uso nas rotas.
-export const podeAcessar = (permissoesExigidas: Permissao[]) => {
+const formatarPermissao = (recurso: Recursos, acao: Acoes): Permissao => {
+  // Concatena RECURSO_ACAO em MAIÚSCULAS para bater com o formato de permissão no JWT.
+  return `${recurso.toUpperCase()}_${acao.toUpperCase()}`;
+};
+
+// 🔑 Sobrecarga 1: Aceita um Recurso e uma Ação (para rotas simples, ex: getNecessidades)
+export function podeAcessar(
+  recurso: Recursos,
+  acao: Acoes
+): (req: Request, res: Response, next: NextFunction) => void;
+
+// 🔑 Sobrecarga 2: Aceita um Array de permissões (para rotas complexas, ex: EstoqueContagemRoutes)
+export function podeAcessar(
+  permissoesExigidas: Permissao[]
+): (req: Request, res: Response, next: NextFunction) => void;
+
+/**
+ * Middleware de RBAC (Role-Based Access Control) - Implementação Unificada.
+ *
+ * Determina quais permissões devem ser checadas, com base nos argumentos fornecidos.
+ */
+export function podeAcessar(
+  recursoOuPermissoes: Recursos | Permissao[],
+  acao?: Acoes
+) {
+  let permissoesParaChecar: Permissao[] = [];
+
+  if (Array.isArray(recursoOuPermissoes)) {
+    // Caso 1: Array de permissões (Ex: ["ESTOQUE_ESCRITA", "ESTOQUE_GERENCIAMENTO"])
+    permissoesParaChecar = recursoOuPermissoes;
+  } else if (acao) {
+    // Caso 2: Par Recurso/Ação (Ex: Recursos.PLANEJAMENTO, Acoes.LEITURA)
+    const permissaoUnica = formatarPermissao(recursoOuPermissoes, acao);
+    permissoesParaChecar = [permissaoUnica];
+  } else {
+    // Devemos evitar que chegue aqui devido à tipagem forte, mas é uma proteção
+    throw new Error(
+      "O middleware 'podeAcessar' requer um array de permissões OU um par Recurso e Ação."
+    );
+  }
+
+  // Retorna o middleware real do Express, que agora usa 'permissoesParaChecar'
   return (req: Request, res: Response, next: NextFunction) => {
-    // A propriedade 'usuario' é adicionada à Request pelo 'authMiddleware'
-    // O 'req.usuario' já está tipado globalmente (declare global)
     const usuario = req.usuario as JwtPayload;
 
     if (!usuario || !usuario.id_usuario) {
-      // Falha se o authMiddleware não funcionou ou se não há usuário
       return res.status(401).json({
         error: "Não autenticado. Informações de usuário não encontradas.",
       });
     }
 
-    // 1. Lógica de Permissão: Verifica se alguma permissão exigida está no array do usuário
-    const usuarioTemPermissao = permissoesExigidas.some(
-      // A tipagem JwtPayload garante que 'usuario.permissoes' existe e é um array de strings
+    // Verifica se o usuário tem QUALQUER uma das permissões exigidas
+    const usuarioTemPermissao = permissoesParaChecar.some(
       (p) => usuario.permissoes && usuario.permissoes.includes(p)
     );
 
-    // 2. Assumimos que o id_cargo 99 (ADMIN) tem acesso total
+    // Assumimos que o id_cargo 99 (ADMIN) tem acesso total
     const isAdmin = usuario.id_cargo === 99;
 
     if (isAdmin || usuarioTemPermissao) {
       return next(); // Permissão concedida
     }
 
-    // 3. Acesso Negado (R12)
+    // Acesso Negado (R12)
+    const permissoesStr = permissoesParaChecar.join(" ou ");
     return res.status(403).json({
-      error: "Acesso negado. Permissão insuficiente (R12).",
+      error: `Acesso negado. Requer pelo menos uma destas permissões: ${permissoesStr} (R12).`,
     });
   };
-};
+}
