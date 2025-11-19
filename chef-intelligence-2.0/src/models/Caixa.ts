@@ -1,10 +1,13 @@
-import { DataTypes, Model, Optional } from "sequelize";
-import { connection } from "../config/sequelize";
+import { DataTypes, Model, Optional } from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory } from '../config/types'; // Importando para associação
 
-export type StatusCaixa = "ABERTO" | "FECHADO";
+export type StatusCaixa = 'ABERTO' | 'FECHADO';
 
 export interface CaixaAttributes {
   id_caixa: number;
+  // GPR-1: Adicionando o campo de segurança R4
+  unidade_id: number;
   colaborador_id_abertura: number;
   colaborador_id_fechamento: number | null;
   data_abertura: Date;
@@ -14,20 +17,19 @@ export interface CaixaAttributes {
   total_despesas: number;
   saldo_final_calculado: number;
   status_caixa: StatusCaixa;
-  // REMOVIDO: unidade_id
 }
 
 export interface CaixaCreationAttributes
   extends Optional<
     CaixaAttributes,
-    | "id_caixa"
-    | "data_abertura"
-    | "colaborador_id_fechamento"
-    | "data_fechamento"
-    | "total_vendas"
-    | "total_despesas"
-    | "saldo_final_calculado"
-    | "status_caixa"
+    | 'id_caixa'
+    | 'data_abertura'
+    | 'colaborador_id_fechamento'
+    | 'data_fechamento'
+    | 'total_vendas'
+    | 'total_despesas'
+    | 'saldo_final_calculado'
+    | 'status_caixa'
   > {}
 
 export class Caixa
@@ -35,6 +37,7 @@ export class Caixa
   implements CaixaAttributes
 {
   public id_caixa!: number;
+  public unidade_id!: number; // GPR-1: Adicionando à instância
   public colaborador_id_abertura!: number;
   public colaborador_id_fechamento!: number | null;
   public data_abertura!: Date;
@@ -56,6 +59,13 @@ Caixa.init(
       primaryKey: true,
       autoIncrement: true,
     },
+    // GPR-1: Adicionando campo de segurança R4
+    unidade_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      comment: 'ID da Unidade de negócio (Regra R4)',
+      references: { model: 'Unidades', key: 'id_unidade' },
+    },
     colaborador_id_abertura: { type: DataTypes.INTEGER, allowNull: false },
     colaborador_id_fechamento: { type: DataTypes.INTEGER, allowNull: true },
     data_abertura: {
@@ -70,7 +80,7 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue("saldo_inicial") as unknown as string
+          this.getDataValue('saldo_inicial') as unknown as string,
         );
       },
     },
@@ -80,7 +90,7 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue("total_vendas") as unknown as string
+          this.getDataValue('total_vendas') as unknown as string,
         );
       },
     },
@@ -90,7 +100,7 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue("total_despesas") as unknown as string
+          this.getDataValue('total_despesas') as unknown as string,
         );
       },
     },
@@ -100,26 +110,35 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue("saldo_final_calculado") as unknown as string
+          this.getDataValue('saldo_final_calculado') as unknown as string,
         );
       },
     },
     status_caixa: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: "ABERTO",
+      defaultValue: 'ABERTO',
     },
   },
   {
-    tableName: "CAIXAS",
+    tableName: 'CAIXAS',
     sequelize: connection,
     timestamps: true,
-    modelName: "Caixa",
-  }
+    modelName: 'Caixa',
+  },
 );
 
-(Caixa as any).associate = function (models: any) {
-  // Associações serão definidas em breve
+// GPR-3: Associação Explícita
+(Caixa as any).associate = function (models: IModelFactory) {
+  // GPR-1: Associação obrigatória à Unidade
+  Caixa.belongsTo(models.Unidade, {
+    foreignKey: 'unidade_id',
+    as: 'unidade',
+  });
+  Caixa.hasMany(models.Lancamento, {
+    foreignKey: 'id_caixa',
+    as: 'lancamentos',
+  });
 };
 
 export default Caixa;

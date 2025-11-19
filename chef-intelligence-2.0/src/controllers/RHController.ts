@@ -17,13 +17,14 @@ import {
 // Schemas Zod (Exemplo para fins de tipagem)
 const perfilIdealSchema = z.object({
   cargo_id: z.number().int().positive(),
-  descricao: z.string().min(1),
+  competencia_id: z.number().int().positive(),
   // ... outras propriedades
 });
 
 const performanceSchema = z.object({
   colaborador_id: z.number().int().positive(),
-  data_avaliacao: z.string().date(),
+  erros_registrados: z.number().int().nonnegative(),
+  desperdicio_total: z.number().nonnegative(),
   // ... outras propriedades
 });
 
@@ -57,7 +58,7 @@ export class RHController {
       if (error instanceof ZodError) {
         return res.status(StatusCodes.BAD_REQUEST).json({
           error: "Erro de Validação: Dados de Perfil Ideal inválidos.",
-          details: error.errors,
+          details: error.issues,
         });
       }
       return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
@@ -83,7 +84,7 @@ export class RHController {
       if (error instanceof ZodError) {
         return res.status(StatusCodes.BAD_REQUEST).json({
           error: "Erro de Validação: Dados de Performance inválidos.",
-          details: error.errors,
+          details: error.issues,
         });
       }
       return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
@@ -125,7 +126,7 @@ export class RHController {
         return res.status(StatusCodes.BAD_REQUEST).json({
           error:
             "Erro de Validação: Dados de entrada para geração de escala inválidos.",
-          details: error.errors,
+          details: error.issues,
         });
       }
       return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
@@ -165,7 +166,7 @@ export class RHController {
       if (error instanceof ZodError) {
         return res.status(StatusCodes.BAD_REQUEST).json({
           error: "Erro de Validação: ID do Gerente inválido.",
-          details: error.errors,
+          details: error.issues,
         });
       }
       return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({

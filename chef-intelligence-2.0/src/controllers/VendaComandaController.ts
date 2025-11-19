@@ -1,37 +1,7 @@
-// src/controllers/VendaComandaController.ts
+import { Request, Response } from 'express';
+import VendaComandaService from '../services/VendaComandaService';
 
-import { Request, Response } from "express";
-import { z } from "zod";
-import VendaComandaService from "../services/VendaComandaService";
-import { VendaComandaAttributes } from "../models/VendaComanda";
-
-// R9: Esquema de validação para Abrir Comanda
-const abrirComandaSchema = z.object({
-  colaborador_id_abertura: z
-    .number()
-    .int()
-    .positive("ID do colaborador inválido."),
-  id_mesa: z
-    .number()
-    .int()
-    .positive("ID da mesa deve ser um número positivo.")
-    .nullable()
-    .default(null),
-});
-
-// R9: Esquema de validação para Fechar Comanda
-const fecharComandaSchema = z.object({
-  metodo_pagamento: z
-    .string()
-    .min(3, "Método de pagamento deve ter pelo menos 3 caracteres."),
-  colaborador_id_fechamento: z
-    .number()
-    .int()
-    .positive("ID do colaborador de fechamento inválido."),
-  id_caixa: z.number().int().positive("ID do caixa deve ser positivo."),
-});
-
-class VendaComandaController {
+export class VendaComandaController {
   private service: VendaComandaService;
 
   constructor() {
@@ -39,158 +9,152 @@ class VendaComandaController {
   }
 
   /**
-   * Abre uma nova comanda/venda (Rota: POST /vendas/comandas)
+   * Abre uma nova comanda/venda (associada ou não a uma mesa).
+   * Rota: POST /venda/abrir
    */
-  public async abrirComanda(req: Request, res: Response): Promise<Response> {
+  public abrirComanda = async (
+    req: Request,
+    res: Response,
+  ): Promise<Response> => {
     try {
-      // R9: Validação de entrada
-      const { colaborador_id_abertura, id_mesa } = abrirComandaSchema.parse(
-        req.body
-      );
+      const colaborador_id_abertura = res.locals.colaborador_id;
+      const unidade_id = res.locals.unidade_id; // 🔑 R4: Extraído do token/sessão
+      const { id_mesa } = req.body;
 
-      // 🔑 Correção do ERRO 1: payload agora só tem os campos necessários
+      if (!colaborador_id_abertura || unidade_id === undefined) {
+        return res
+          .status(401)
+          .json({ error: 'Colaborador ou Unidade não identificados.' });
+      }
+
       const novaVenda = await this.service.abrirComanda({
         colaborador_id_abertura,
         id_mesa,
+        unidade_id, // 🔑 R4 CORRIGIDO: Injetando unidade_id
       });
 
-      return res.status(201).json({
-        message: `Comanda ID ${novaVenda.id_venda} aberta com sucesso.`,
-        venda: novaVenda,
-      });
+      return res.status(201).json(novaVenda);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({
-          error: "Dados de abertura inválidos.",
-          details: error.issues,
-        });
-      }
-      return res.status(500).json({
-        error: "Erro ao abrir a comanda.",
-        details: (error as Error).message,
-      });
+      return res.status(500).json({ error: (error as Error).message });
     }
-  }
+  };
 
   /**
-   * Fecha uma comanda (Rota: PUT /vendas/comandas/:id_venda/fechar)
+   * Fecha uma comanda/venda ativa.
+   * Rota: POST /venda/fechar
    */
-  public async fecharComanda(req: Request, res: Response): Promise<Response> {
-    const id_venda = parseInt(req.params.id_venda || req.params.id, 10);
-    if (isNaN(id_venda)) {
-      return res.status(400).json({ error: "ID da Comanda inválido." });
-    }
-
+  public fecharComanda = async (
+    req: Request,
+    res: Response,
+  ): Promise<Response> => {
     try {
-      // R9: Validação de entrada
-      const { metodo_pagamento, colaborador_id_fechamento, id_caixa } =
-        fecharComandaSchema.parse(req.body);
+      const colaborador_id_fechamento = res.locals.colaborador_id;
+      const unidade_id = res.locals.unidade_id; // 🔑 R4: Extraído do token/sessão
+      const { id_venda, metodo_pagamento, id_caixa } = req.body;
 
-      // 🔑 Correção do ERRO 2: Removido o argumento unidade_id
-      const vendaFechada = await this.service.fecharComanda(
+      if (
+        !id_venda ||
+        !metodo_pagamento ||
+        !id_caixa ||
+        !colaborador_id_fechamento ||
+        unidade_id === undefined
+      ) {
+        return res
+          .status(400)
+          .json({ error: 'Dados incompletos para fechamento da comanda.' });
+      }
+
+      // 🔑 R4 CORRIGIDO: Passando o objeto FecharComandaData completo
+      const vendaFechada = await this.service.fecharComanda({
         id_venda,
         metodo_pagamento,
         colaborador_id_fechamento,
-        id_caixa
-      );
+        id_caixa,
+        unidade_id, // 🔑 R4 CORRIGIDO: Injetando unidade_id
+      });
 
-      return res.status(200).json({
-        message: `Comanda ID ${id_venda} fechada e lançada no caixa ${id_caixa}.`,
-        venda: vendaFechada,
-      });
+      return res.status(200).json(vendaFechada);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({
-          error: "Dados de fechamento inválidos.",
-          details: error.issues,
-        });
-      }
-      return res.status(500).json({
-        error: "Erro ao fechar a comanda.",
-        details: (error as Error).message,
-      });
+      return res.status(500).json({ error: (error as Error).message });
     }
-  }
+  };
 
   /**
-   * Busca comandas ativas (ABERTAS ou AGUARDANDO_PAGAMENTO)
-   * Rota: GET /vendas/comandas/ativas
+   * Lista todas as comandas/vendas ativas da unidade.
+   * Rota: GET /venda/ativas
    */
-  public async buscarComandasAtivas(
+  public buscarComandasAtivas = async (
     req: Request,
-    res: Response
-  ): Promise<Response> {
+    res: Response,
+  ): Promise<Response> => {
     try {
-      // 🔑 Correção do ERRO 3: Chamada sem argumentos
-      const comandas = await this.service.buscarComandasAtivas();
+      const unidade_id = res.locals.unidade_id; // 🔑 R4: Extraído do token/sessão
+
+      if (unidade_id === undefined) {
+        return res.status(401).json({ error: 'Unidade não identificada.' });
+      }
+
+      const comandas = await this.service.buscarComandasAtivas(unidade_id); // 🔑 R4 CORRIGIDO: Passando unidade_id
 
       return res.status(200).json(comandas);
     } catch (error) {
-      console.error(
-        "Erro ao listar comandas ativas:",
-        (error as Error).message
-      );
-      return res
-        .status(500)
-        .json({ error: "Falha ao buscar comandas ativas." });
+      return res.status(500).json({ error: (error as Error).message });
     }
-  }
+  };
 
   /**
-   * Busca o histórico de vendas (FECHADAS ou CANCELADAS)
-   * Rota: GET /vendas/comandas/historico
+   * Lista o histórico de vendas fechadas da unidade.
+   * Rota: GET /venda/historico
    */
-  public async buscarHistoricoVendas(
+  public buscarHistoricoVendas = async (
     req: Request,
-    res: Response
-  ): Promise<Response> {
+    res: Response,
+  ): Promise<Response> => {
     try {
-      // 🔑 Correção do ERRO 4: Chamada sem argumentos
-      const historico = await this.service.buscarHistoricoVendas();
+      const unidade_id = res.locals.unidade_id; // 🔑 R4: Extraído do token/sessão
+
+      if (unidade_id === undefined) {
+        return res.status(401).json({ error: 'Unidade não identificada.' });
+      }
+
+      const historico = await this.service.buscarHistoricoVendas(unidade_id); // 🔑 R4 CORRIGIDO: Passando unidade_id
 
       return res.status(200).json(historico);
     } catch (error) {
-      console.error(
-        "Erro ao listar histórico de vendas:",
-        (error as Error).message
-      );
-      return res
-        .status(500)
-        .json({ error: "Falha ao buscar histórico de vendas." });
+      return res.status(500).json({ error: (error as Error).message });
     }
-  }
+  };
 
   /**
-   * Busca uma comanda específica pelo ID (show)
-   * Rota: GET /vendas/comandas/:id_venda
+   * Busca uma comanda específica por ID.
+   * Rota: GET /venda/:id_venda
    */
-  public async buscarComandaPorId(
+  public buscarComandaPorId = async (
     req: Request,
-    res: Response
-  ): Promise<Response> {
-    const id_venda = parseInt(req.params.id_venda || req.params.id, 10);
-    if (isNaN(id_venda)) {
-      return res.status(400).json({ error: "ID da Comanda inválido." });
-    }
-
+    res: Response,
+  ): Promise<Response> => {
     try {
-      // 🔑 Correção do ERRO 5: Chamada com apenas 1 argumento (id_venda)
-      const comanda = await this.service.buscarComandaPorId(id_venda);
+      const id_venda = parseInt(req.params.id_venda, 10);
+      const unidade_id = res.locals.unidade_id; // 🔑 R4: Extraído do token/sessão
+
+      if (!id_venda || unidade_id === undefined) {
+        return res
+          .status(400)
+          .json({ error: 'ID da venda ou Unidade não fornecidos.' });
+      }
+
+      const comanda = await this.service.buscarComandaPorId(
+        id_venda,
+        unidade_id,
+      ); // 🔑 R4 CORRIGIDO: Passando unidade_id
 
       if (!comanda) {
-        return res
-          .status(404)
-          .json({ message: `Comanda ID ${id_venda} não encontrada.` });
+        return res.status(404).json({ error: 'Comanda não encontrada.' });
       }
 
       return res.status(200).json(comanda);
     } catch (error) {
-      console.error("Erro ao buscar comanda:", (error as Error).message);
-      return res
-        .status(500)
-        .json({ error: "Falha ao buscar detalhes da comanda." });
+      return res.status(500).json({ error: (error as Error).message });
     }
-  }
+  };
 }
-
-export default new VendaComandaController();

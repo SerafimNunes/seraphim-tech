@@ -12,10 +12,14 @@ export class EscalaController {
   private usuarioService: UsuarioService;
   private rhService: RHService;
 
-  constructor() {
-    this.usuarioService = new UsuarioService();
-    this.rhService = new RHService();
-    this.escalaService = new EscalaService();
+  constructor(
+    escalaService: EscalaService,
+    usuarioService: UsuarioService,
+    rhService: RHService
+  ) {
+    this.escalaService = escalaService;
+    this.usuarioService = usuarioService;
+    this.rhService = rhService;
 
     // Injeção de dependência via setter
     this.escalaService.setRHService(this.rhService);

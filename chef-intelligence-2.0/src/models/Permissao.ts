@@ -1,54 +1,49 @@
-import { DataTypes, Model, Optional } from "sequelize";
-import { connection } from "config/sequelize";
+// src/models/Permissao.ts
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
 
-// O nome da permissão (ex.: "ESTOQUE_ESCRITA", "FINANCEIRO_LEITURA")
-interface PermissaoAttributes {
-  id_permissao: number;
+// 1. Interfaces e Tipagem (GPR-2)
+export interface PermissaoAttributes {
+  id_permissao: number; // GPR-5: Padrão de chave Primária
   nome_permissao: string;
   descricao: string | null;
 }
 
-// Opcionais na criação (Sequelize define o ID)
-type PermissaoCreationAttributes = Optional<
-  PermissaoAttributes,
-  "id_permissao"
->;
+export interface PermissaoCreationAttributes
+  extends Optional<PermissaoAttributes, "id_permissao" | "descricao"> {}
 
-export default class Permissao
-  extends Model<PermissaoAttributes, PermissaoCreationAttributes>
-  implements PermissaoAttributes
-{
-  public id_permissao!: number;
-  public nome_permissao!: string;
-  public descricao!: string | null;
+// Model com tipagem Sequelize
+export interface PermissaoModel
+  extends Model<PermissaoAttributes, PermissaoCreationAttributes>,
+    PermissaoAttributes {}
 
-  // Timestamps
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
-}
-
-// Inicialização do Modelo
-Permissao.init(
+// 2. Definição do Modelo (Usando ModelCtor para tipagem correta)
+const Permissao: ModelCtor<PermissaoModel> = connection.define<PermissaoModel>(
+  "Permissao",
   {
     id_permissao: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
-      primaryKey: true,
+      primaryKey: true, // GPR-5: Definição de chave primária
     },
     nome_permissao: {
       type: DataTypes.STRING(100),
       allowNull: false,
-      unique: true, // Garante que não haverá duplicidade de nomes de permissão
+      unique: true,
     },
     descricao: {
       type: DataTypes.STRING(255),
       allowNull: true,
     },
-  },
-  {
-    sequelize: connection,
-    tableName: "Permissoes",
-    underscored: true,
-    timestamps: true,
   }
 );
+
+// 3. Associação Explicita (GPR-3)
+(Permissao as any).associate = function (models: IModelFactory) {
+  // Este modelo não possui associações belongsto.
+  // As associações com Permissao (ex: UsuarioPermissao) devem ser definidas nos modelos que a utilizam.
+};
+
+// Exportamos como default para facilitar a importação
+export default Permissao;

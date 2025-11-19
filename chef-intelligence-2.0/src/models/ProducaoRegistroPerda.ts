@@ -1,23 +1,21 @@
-// src/models/ProducaoRegistroPerda.ts
-
-import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
-import { connection } from "../config/sequelize";
-import { IModelFactory } from "../config/types";
-import { ItemEstoqueModel } from "./ItemEstoque";
+import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory } from '../config/types';
+import { ItemEstoqueModel } from './ItemEstoque';
 
 type TipoPerda =
-  | "QUEBRA"
-  | "VALIDADE"
-  | "ERRO_PRODUCAO"
-  | "ERRO_VENDA"
-  | "OUTROS";
+  | 'QUEBRA'
+  | 'VALIDADE'
+  | 'ERRO_PRODUCAO'
+  | 'ERRO_VENDA'
+  | 'OUTROS';
 
 export interface ProducaoRegistroPerdaAttributes {
   id_registro_perda: number;
   id_produto: number;
-  quantidade_perdida: number;
-  custo_unitario_na_hora: number;
-  custo_total_perda: number;
+  quantidade_perdida: number; // DECIMAL(10, 3)
+  custo_unitario_na_hora: number; // DECIMAL(10, 2)
+  custo_total_perda: number; // DECIMAL(10, 2)
   colaborador_id: number | null;
   tipo_perda: TipoPerda;
   observacoes: string | null;
@@ -29,13 +27,13 @@ export interface ProducaoRegistroPerdaAttributes {
 export interface ProducaoRegistroPerdaCreationAttributes
   extends Optional<
     ProducaoRegistroPerdaAttributes,
-    | "id_registro_perda"
-    | "custo_total_perda"
-    | "colaborador_id"
-    | "observacoes"
-    | "data_registro"
-    | "createdAt"
-    | "updatedAt"
+    | 'id_registro_perda'
+    | 'custo_total_perda'
+    | 'colaborador_id'
+    | 'observacoes'
+    | 'data_registro'
+    | 'createdAt'
+    | 'updatedAt'
   > {}
 
 export interface ProducaoRegistroPerdaModel
@@ -47,11 +45,10 @@ export interface ProducaoRegistroPerdaModel
   produto?: ItemEstoqueModel;
 }
 
-const ProducaoRegistroPerda: ModelCtor<ProducaoRegistroPerdaModel> =
+export const ProducaoRegistroPerda: ModelCtor<ProducaoRegistroPerdaModel> =
   connection.define<ProducaoRegistroPerdaModel>(
-    "ProducaoRegistroPerda",
+    'ProducaoRegistroPerda',
     {
-      /* ... (Campos permanecem os mesmos) ... */
       id_registro_perda: {
         type: DataTypes.INTEGER,
         primaryKey: true,
@@ -60,17 +57,36 @@ const ProducaoRegistroPerda: ModelCtor<ProducaoRegistroPerdaModel> =
       id_produto: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        field: "id_produto",
+        field: 'id_produto',
       },
-      quantidade_perdida: { type: DataTypes.DECIMAL(10, 3), allowNull: false },
+      // 🔑 GPR-4: DECIMAL fields com Getter para garantir tipo 'number'
+      quantidade_perdida: {
+        type: DataTypes.DECIMAL(10, 3),
+        allowNull: false,
+        get() {
+          return parseFloat(
+            this.getDataValue('quantidade_perdida') as unknown as string,
+          );
+        },
+      },
       custo_unitario_na_hora: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
+        get() {
+          return parseFloat(
+            this.getDataValue('custo_unitario_na_hora') as unknown as string,
+          );
+        },
       },
       custo_total_perda: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
         defaultValue: 0.0,
+        get() {
+          return parseFloat(
+            this.getDataValue('custo_total_perda') as unknown as string,
+          );
+        },
       },
       colaborador_id: { type: DataTypes.INTEGER, allowNull: true },
       tipo_perda: { type: DataTypes.STRING(50), allowNull: false },
@@ -82,19 +98,19 @@ const ProducaoRegistroPerda: ModelCtor<ProducaoRegistroPerdaModel> =
       },
     },
     {
-      tableName: "REGISTRO_PERDAS",
+      tableName: 'REGISTRO_PERDAS',
       timestamps: true,
-      modelName: "ProducaoRegistroPerda", // 🔑 Novo nome do Model
-    }
+      modelName: 'ProducaoRegistroPerda',
+    },
   );
 
 (ProducaoRegistroPerda as any).associate = (models: IModelFactory) => {
   ProducaoRegistroPerda.belongsTo(
     models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
     {
-      foreignKey: "id_produto",
-      as: "produto",
-    }
+      foreignKey: 'id_produto',
+      as: 'produto',
+    },
   );
 };
 

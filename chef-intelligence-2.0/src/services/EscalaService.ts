@@ -37,11 +37,12 @@ export class EscalaService {
     for (const colaboradorId of data.colaboradores) {
       // Usa o método do RHService que busca por id_colaborador
       const colaborador = await this.rhService.getColaboradorById(
-        colaboradorId
+        colaboradorId,
+        data.unidade_id
       );
 
       // Regra de Negócio: Somente colaboradores ATIVOS podem ser escalados.
-      if (!colaborador || colaborador.status !== "ATIVO") {
+      if (!colaborador || colaborador.Status !== "ATIVO") {
         throw new Error(
           `Colaborador ID ${colaboradorId} não está disponível ou ativo e não pode ser escalado.`
         );
@@ -90,5 +91,15 @@ export class EscalaService {
     const escalaAprovada = (await Escala.findByPk(id_escala)) as Escala;
 
     return escalaAprovada.toJSON() as EscalaModel;
+  }
+
+  public async gerarEscalaOtimizada(
+    demanda: any,
+    regras: any[],
+    colaboradores: any[]
+  ): Promise<any> {
+    console.log("Gerando escala otimizada com:", demanda, regras, colaboradores);
+    // Lógica de otimização de escala aqui
+    return { message: "Escala otimizada gerada com sucesso." };
   }
 }

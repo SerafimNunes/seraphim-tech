@@ -1,0 +1,76 @@
+👑 Chef Intelligence ERP: Arquitetura Conceitual Detalhada (V5)
+🎯 Visão Estratégica
+O Chef Intelligence é uma Plataforma de Melhoria Contínua. Sua missão é empoderar a gestão com dados correlacionados (RH, Estoque, Finanças) para fechar o ciclo PDCA e otimizar a lucratividade.
+
+📜 13 Regras de Ouro (System Prompt Fixo)
+Estas regras governam a consistência e segurança do código.
+
+Regra,Escopo
+R1. Tipagem Rígida,Uso exclusivo de TypeScript (I... para Interfaces).
+R2. Fluxo de Estoque,Saldo não Negativo. Toda baixa (Venda/Produção) deve ser validada e registrada.
+R3. Cálculo de CMV,CMV baseado em Ficha Técnica (IRecipe) e Custo Médio Ponderado (CMP).
+R4. Multi-Unidade,Segregação de dados por unidade_id em entidades principais.
+R5. Assincronicidade,Priorizar async/await em operações de BD/I/O.
+R6. Nomenclatura Padrão,[Entidade][Tipo].ts (Ex: VendaController.ts).
+R7. Fonte de Dados (Caderno),"IProducaoRegistro deve capturar descartes, quem_produziu e data_validade."
+R8. Ponto de Equilíbrio,Cálculo e projeção do Break-Even Point (PE).
+R9. Validação Inicial,Uso de bibliotecas de validação em todos os Controllers (Ex: Zod).
+R10. Feedback de Dados,"Foco em gerar Insights (KPIs, Alertas) e não apenas tabelas."
+R11. Ponto de Pedido (PP),Uso do campo ponto_pedido para gerar listas de Compra e Produção.
+R12. Controle de Acesso (RBAC),Todas as rotas devem ser protegidas por permissão de ICargo.
+R13. Escala Algorítmica,Algoritmo de escala deve respeitar as IRegraColaborador (Restrições Fixas).
+
+🛡️ Módulos de Infraestrutura e Segurança 8. Segurança e Acesso (SegurancaService / RBAC)
+Entidades ChaveFuncionalidadeInteração e SegurançaIUsuario, ICargo, IPermissaoAutenticação: Login (Email/Senha), Geração de JWT.AuthService.login(credenciais)RBAC (R12): Definição de perfis (Ex: Estoquista, Chef, Gerente).SegurancaService.verificarAcesso(usuario, recurso, acao): Middleware obrigatório em cada Controller.Segregação de Dados (R4): O sistema deve injetar unidade_id automaticamente nas queries do usuário, garantindo que ele só veja dados da sua filial.
+
+🧑‍🤝‍🧑 Módulos de Recursos Humanos e Planejamento Estratégico 9. Recursos Humanos (RhService) - Empoderamento do Colaborador
+Entidades Chave,Funcionalidade,Interação e Valor Estratégico
+"IColaborador, IHistoricoPerformance, ICargo, IRegraColaborador",Contratação Inteligente: Define ICompetencia e IPerfilIdeal por cargo.,Ajuda o RH a buscar talentos alinhados ao fit cultural e operacional.
+,Trilha de Treinamento: Define ITreinamento obrigatório por cargo. Interação ← Escala (R13): Bloqueia a escalação para funções-chave se o treinamento não estiver concluído.,
+,"Monitoramento de Performance: Registra métricas de desempenho. Interação → Análise (Módulo 6): Fornece dados brutos de eficiência por pessoa (erros, desperdício, tempo de preparo).",
+
+10. Escalas (EscalaService) : Entidades Chave,Funcionalidade,Interação e Controle
+    "IEscala, IRegraColaborador","Geração Algorítmica (R13): Processa as necessidades de cobertura (demanda) e as IRegraColaborador (Ex: restrições religiosas, folgas).","Otimiza o quadro de horários, minimizando horas extras e conflitos."
+    ,Validação e Aprovação: A escala gerada deve ser validada pelo RhService e aprovada por um Gerente (R12) antes de ser publicada.,
+
+11. Planejamento (PlanejamentoService) - O Puxador Kanban: Entidades Chave,Funcionalidade,Interação e Controle
+    "IProducaoNecessidade, ICompraNecessidade",Gatilho PP (R11): Roda a lógica de Estoque Atual < Ponto de Pedido para todos os itens.,Dispara a necessidade de reposição de forma automática.
+    ,Geração de Listas: Gera listas de Compras e Produção para os módulos responsáveis.,
+
+🛒 Módulos Operacionais e Transacionais (O Fluxo de Materiais)
+
+1. Estoque (EstoqueService)
+   Entidades Chave,Funcionalidade,Interação e Controle
+   "IIngrediente, IPrePronto, IPratoFinal",Controle de Saldo (R2): Atualiza saldos (Débito/Crédito). Bloqueia transações que levariam a estoque negativo.,
+   ,Alertas em Tempo Real: Dispara notificação imediata quando o IPratoFinal atinge o nível crítico de estoque. Interação → Vendas (PDV): Força a exibição do alerta na comanda eletrônica.,
+   ,Custo Médio Ponderado (CMP): Armazena o CMP atual de cada IIngrediente (R3).,
+
+2. Vendas (PDV) (VendaService)
+   Entidades Chave,Funcionalidade,Interação e Controle
+   "IVenda, IVendaItem",Registro: Recebe o payload do PDV/Comanda Eletrônica. Interação → Estoque: Debita os IPratoFinal vendidos (R2).,
+   ,Integração de Alerta: Interação ← Estoque: Recebe o alerta e desativa o item no menu digital quando o estoque é zero.,
+
+3. Produção (ProducaoService)
+   Entidades Chave,Funcionalidade,Interação e Controle
+   "IProducaoRegistro, IRecipe, ISolicitacaoInsumos",Designação de Responsável: Gerente designa o IColaborador para o lote (R13).,
+   ,Solicitação de Insumos (Lista de Separação): Gera a ISolicitacaoInsumos (calculada via IRecipe) para o Estoquista (RBAC). Separação: Estoquista registra a entrega.,
+   ,"Registro de Lote (R7): Colaborador Registra Início/Fim, quem_produziu (array de IDs), e Descartes. Interação → Estoque: Debita os insumos e Credita o item pronto (R2).",
+
+4. Compras (CompraService)
+   Entidades Chave,Funcionalidade,Interação e Controle
+   "ICompra, IFornecedor",Registro: Recebe a nota fiscal. Interação → Estoque: Credita o IIngrediente. Recálculo CMP (R3): Aciona a função de Custo para atualizar o CMP do ingrediente.,
+
+📊 Módulos Estratégicos e de Qualidade
+
+6. Análise e Insights (AnaliseService) - O Hub Estratégico
+   Escopo,KPIs Chave (R10),Interações de Dados
+   Financeiro,"CMV Real-Time, Margem de Contribuição (MC), MCMP, Break-Even Point (R8), Margem de Lucro Real, Ticket Médio.","Lê dados de Vendas (Receita), Estoque (Custo), Compras (CMP)."
+   Operacional,"Tempo Médio de Preparo (TMP), Desperdício (R7), Curva ABC de Vendas, Índice de Acurácia de Estoque.",Lê dados de Produção (Tempo/Descarte) e Vendas.
+   RH/Pessoas,"Taxa de Rotatividade (Turnover), Tempo para Contratar, Custo por Contratação, Clima Organizacional (Módulo 9).",Lê dados do RH e correlaciona com Desperdício/Erros de Venda.
+
+7. Gestão de Clientes/Feedback (FeedbackService)Entidades ChaveFuncionalidadeInteração e Qualidade TotalIFeedbackCaptura de Feedback: Registra NPS e comentários.Rastreabilidade da Qualidade: Interação $\rightarrow$ Produção: Vincula o feedback negativo a uma IVenda e rastreia até o IProducaoRegistro (lote) e o IColaborador responsável.Permite identificar a causa raiz da falha na qualidade (PDCA - Check & Act).
+
+📚 Atualização Final: Módulo 11 - Contabilidade e Conformidade Fiscal
+O objetivo deste módulo é ser o elo de ligação (ou a "ponte") entre as operações diárias e o escritório de contabilidade, facilitando a conformidade legal sem depender de integrações complexas com a Receita Federal.
+
+11. Contabilidade (ContabilidadeService)Entidades ChaveFuncionalidadeInteração e Valor Legal/FiscalIRegistroFiscal, ICupomNaoFiscal, IDocumentoContabilEmissão Não Fiscal: Gera um Cupom Não Fiscal (ICupomNaoFiscal) no ato da venda para clientes que não exigem NF-e (Rastreamento de vendas).Interação $\leftarrow$ Vendas: Registra a venda para fins de caixa, mesmo sem NF-e.Alerta de Enquadramento (Simples Nacional): Monitora o faturamento total da IUnidade (R4) e o limite do Simples Nacional (MEI/ME).Alerta de Gestão: Gera um alerta para o Gerente/Admin caso o faturamento se aproxime do limite, permitindo o planejamento da mudança de regime tributário.Geração de Documentos Contábeis: Compila todas as transações (Vendas, Compras, Folha de Pagamento - RH) em relatórios padronizados.Interação $\leftarrow$ TODOS os Módulos: Lê IVenda, ICompra, IProducaoRegistro e IHistoricoFolha (RH) para gerar: Livro Caixa, DRE gerencial, Relatórios de Receitas/Despesas.Integração com o Contador (Download): Permite a exportação de todos os documentos gerados (IDocumentoContabil) em formato padrão (PDF/CSV) para envio ao escritório de contabilidade.Valor: Reduz o tempo de trabalho do contador e garante que ele use os dados reais do ERP.

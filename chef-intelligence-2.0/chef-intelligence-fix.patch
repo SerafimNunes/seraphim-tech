@@ -1,0 +1,703 @@
+-----BEGIN PATCH-----
+*** Add/Update File: src/config/types.ts
++// src/config/types.ts
++import { ModelCtor, Transaction, Model } from 'sequelize';
++import { JwtPayload } from 'jsonwebtoken';
++
++export enum Acoes { LER = 'LER', CRIAR = 'CRIAR', ATUALIZAR = 'ATUALIZAR', DELETAR = 'DELETAR' }
++export enum Recursos { FICHA_TECNICA = 'FICHA_TECNICA', PLANEJAMENTO = 'PLANEJAMENTO', PRODUCAO = 'PRODUCAO', ESCALA = 'ESCALA' }
++export enum NivelAcesso { ADMIN = 'ADMIN', USER = 'USER' }
++export enum StatusColaborador { ATIVO = 'ATIVO', INATIVO = 'INATIVO', DESLIGADO = 'DESLIGADO' }
++export interface IPerfilIdeal { cargo_id?: number; competencias?: string[]; }
++export interface IHistoricoPerformance { colaborador_id?: number; ano?: number; nota?: number; }
++export interface IRegraColaborador { regra?: string; }
++export interface IColaboradorBase { id_colaborador?: number; nome?: string; }
++export type StatusQualidade = 'PENDENTE' | 'APROVADO' | 'REPROVADO' | 'DEVOLVIDO';
++export type StatusAprovacaoCompras = 'SUGERIDO' | 'AGUARDANDO_APROVACAO' | 'APROVADO' | 'REPROVADO' | 'CANCELADO' | 'FINALIZADO';
++export type StatusProducao = 'SUGERIDO' | 'APROVADO' | 'EM_PRODUCAO' | 'CONCLUIDO' | 'CANCELADO';
++export type StatusRequisicao = 'SOLICITADA' | 'EM_SEPARACAO' | 'ENTREGUE' | 'RECUSADA' | 'CANCELADA';
++export type TipoPerda = 'QUEBRA' | 'VALIDADE' | 'ERRO_PRODUCAO' | 'ERRO_VENDA' | 'OUTROS';
++export type StatusMesa = 'LIVRE' | 'OCUPADA' | 'AGUARDANDO_FECHAMENTO' | 'MANUTENCAO';
++export type StatusComanda = 'ABERTA' | 'FECHADA' | 'CANCELADA' | 'AGUARDANDO_PAGAMENTO';
++export type StatusItem = 'ABERTO' | 'PREPARANDO' | 'ENTREGUE' | 'CANCELADO';
++export interface KPIFilter { unidade_id: number; data_inicio: Date; data_fim: Date; transaction?: Transaction; }
++export interface DashboardKPIs {
++  receita_liquida: number;
++  receita_total?: number;
++  cmv_real_time: number;
++  margem_bruta: number;
++  despesas_variaveis: number;
++  lucro_operacional: number;
++  ticket_medio: number;
++  mcmp: number;
++  custo_mercadoria_vendida?: number;
++}
++export interface ProducaoKPIs {
++  registros_concluidos: number;
++  custo_total_producao: number;
++  custo_total_perdas: number;
++  eficiencia_producao: number;
++}
++
++export interface IModelFactoryNamed {
++  ItemEstoque?: ModelCtor<Model<any, any>>;
++  VendaComanda?: ModelCtor<Model<any, any>>;
++  VendaItem?: ModelCtor<Model<any, any>>;
++  VendaMesa?: ModelCtor<Model<any, any>>;
++  VendaImposto?: ModelCtor<Model<any, any>>;
++  VendaComissao?: ModelCtor<Model<any, any>>;
++  ProducaoRegistro?: ModelCtor<Model<any, any>>;
++  ProducaoRequisicaoInsumo?: ModelCtor<Model<any, any>>;
++  ProducaoRegistroPerda?: ModelCtor<Model<any, any>>;
++  ComprasPedido?: ModelCtor<Model<any, any>>;
++  ComprasItemPedido?: ModelCtor<Model<any, any>>;
++  Unidade?: ModelCtor<Model<any, any>>;
++  Colaborador?: ModelCtor<Model<any, any>>;
++  Fornecedor?: ModelCtor<Model<any, any>>;
++  Caixa?: ModelCtor<Model<any, any>>;
++  ContaContabil?: ModelCtor<Model<any, any>>;
++  Lancamento?: ModelCtor<Model<any, any>>;
++  DocumentoContabil?: ModelCtor<Model<any, any>>;
++}
++
++export interface IModelFactory extends IModelFactoryNamed {
++  [name: string]: ModelCtor<Model<any, any>> | undefined;
++}
++
++export interface JwtUsuario extends JwtPayload {
++  id_usuario: number;
++  unidade_id: number;
++  id_cargo?: number;
++  nome_cargo?: string;
++  permissoes?: string[];
++}
++
+*** End Patch for src/config/types.ts
+*** Add/Update File: src/config/associations.ts
++// src/config/associations.ts
++import { ModelCtor } from 'sequelize';
++import { IModelFactory } from './types';
++
++export const applyAssociations = (models: { [key: string]: ModelCtor<any> }) => {
++  console.log('🔗 Aplicando associações de modelos...');
++  Object.keys(models).forEach((key) => {
++    const model = models[key];
++    if (!model) {
++      console.warn(`  ⚠ Modelo '${key}' indefinido — pulando associate().`);
++      return;
++    }
++    const maybeAssociate = (model as any).associate;
++    if (typeof maybeAssociate === 'function') {
++      try {
++        maybeAssociate(models as unknown as IModelFactory);
++        console.log(`  ✔ ${key} -> associate() executada`);
++      } catch (err) {
++        console.warn(`  ⚠ Falha ao associar ${key}:`, (err as Error).message);
++      }
++    }
++  });
++  console.log('✅ Associações aplicadas.');
++};
++
+*** End Patch for src/config/associations.ts
+*** Add/Update File: src/index.ts
++// src/index.ts
++import express, { Request, Response } from 'express';
++import { connection } from './config/sequelize';
++import { applyAssociations } from './config/associations';
++import { IModelFactory } from './config/types';
++
++import Colaborador from './models/Colaborador';
++import Cargo from './models/Cargo';
++import Permissao from './models/Permissao';
++import Usuario from './models/Usuario';
++import Escala from './models/Escala';
++import CupomNaoFiscal from './models/CupomNaoFiscal';
++import Lancamento from './models/Lancamento';
++import Caixa from './models/Caixa';
++import ContaContabil from './models/ContaContabil';
++import DocumentoContabil from './models/DocumentoContabil';
++import VendaMesa from './models/VendaMesa';
++import FichaTecnica from './models/FichaTecnica';
++import ItemEstoque from './models/ItemEstoque';
++import VendaComanda from './models/VendaComanda';
++import VendaItem from './models/VendaItem';
++import ComprasPedido from './models/ComprasPedido';
++import ComprasItemPedido from './models/ComprasItemPedido';
++import ProducaoRegistro from './models/ProducaoRegistro';
++import ProducaoRequisicaoInsumo from './models/ProducaoRequisicaoInsumo';
++import ProducaoRegistroPerda from './models/ProducaoRegistroPerda';
++
++const models = {
++  Colaborador,
++  Cargo,
++  Permissao,
++  Usuario,
++  Escala,
++  CupomNaoFiscal,
++  Lancamento,
++  Caixa,
++  ContaContabil,
++  DocumentoContabil,
++  VendaMesa,
++  FichaTecnica,
++  ItemEstoque,
++  VendaComanda,
++  VendaItem,
++  ComprasPedido,
++  ComprasItemPedido,
++  ProducaoRegistro,
++  ProducaoRequisicaoInsumo,
++  ProducaoRegistroPerda,
++} as unknown as IModelFactory;
++
++async function startServer() {
++  const app = express();
++  const port = process.env.PORT || 3000;
++  app.use(express.json());
++  applyAssociations(models);
++  try {
++    await connection.authenticate();
++    console.log('Conexão com o banco estabelecida com sucesso.');
++    app.get('/', (_req: Request, res: Response) => res.send('API Chef Intelligence 2.0 Rodando!'));
++    app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
++  } catch (err) {
++    console.error('Erro ao conectar com o banco:', (err as Error).message);
++    process.exit(1);
++  }
++}
++
++startServer();
++
+*** End Patch for src/index.ts
+*** Add/Update File: src/models/VendaComanda.ts
++// src/models/VendaComanda.ts
++import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
++import { connection } from '../config/sequelize';
++import { IModelFactory } from '../config/types';
++
++export type StatusComanda = 'ABERTA' | 'FECHADA' | 'CANCELADA' | 'AGUARDANDO_PAGAMENTO';
++
++export interface VendaComandaAttributes {
++  id_venda: number;
++  id_mesa: number | null;
++  id_caixa: number | null;
++  colaborador_id_abertura: number;
++  colaborador_id_fechamento: number | null;
++  status_venda: StatusComanda;
++  data_abertura: Date;
++  data_fechamento: Date | null;
++  valor_total: number;
++  custo_total: number;
++  metodo_pagamento: string | null;
++  unidade_id: number;
++  createdAt?: Date;
++  updatedAt?: Date;
++}
++
++export interface VendaComandaCreationAttributes extends Optional<
++  VendaComandaAttributes,
++  'id_venda' | 'colaborador_id_fechamento' | 'data_abertura' | 'data_fechamento' | 'valor_total' | 'custo_total' | 'metodo_pagamento'
++> {}
++
++export class VendaComanda extends Model<VendaComandaAttributes, VendaComandaCreationAttributes> implements VendaComandaAttributes {
++  public id_venda!: number;
++  public id_mesa!: number | null;
++  public id_caixa!: number | null;
++  public colaborador_id_abertura!: number;
++  public colaborador_id_fechamento!: number | null;
++  public status_venda!: StatusComanda;
++  public data_abertura!: Date;
++  public data_fechamento!: Date | null;
++  public valor_total!: number;
++  public custo_total!: number;
++  public metodo_pagamento!: string | null;
++  public unidade_id!: number;
++  public readonly createdAt!: Date;
++  public readonly updatedAt!: Date;
++  public readonly itens?: any[];
++  public readonly mesa?: any;
++  public readonly unidade?: any;
++  public readonly caixa?: any;
++}
++
++VendaComanda.init(
++  {
++    id_venda: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
++    id_mesa: { type: DataTypes.INTEGER, allowNull: true },
++    id_caixa: { type: DataTypes.INTEGER, allowNull: true },
++    colaborador_id_abertura: { type: DataTypes.INTEGER, allowNull: false },
++    colaborador_id_fechamento: { type: DataTypes.INTEGER, allowNull: true },
++    status_venda: {
++      type: DataTypes.ENUM('ABERTA', 'FECHADA', 'CANCELADA', 'AGUARDANDO_PAGAMENTO'),
++      allowNull: false,
++      defaultValue: 'ABERTA',
++    },
++    data_abertura: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
++    data_fechamento: { type: DataTypes.DATE, allowNull: true },
++    valor_total: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      defaultValue: 0.0,
++      get() { return parseFloat(this.getDataValue('valor_total') as unknown as string); }
++    },
++    custo_total: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      defaultValue: 0.0,
++      get() { return parseFloat(this.getDataValue('custo_total') as unknown as string); }
++    },
++    metodo_pagamento: { type: DataTypes.STRING(50), allowNull: true },
++    unidade_id: {
++      type: DataTypes.INTEGER,
++      allowNull: false,
++      comment: 'ID da Unidade de negócio (Regra R4)',
++      references: { model: 'UNIDADES', key: 'id_unidade' },
++    },
++  },
++  {
++    tableName: 'VENDAS',
++    sequelize: connection,
++    timestamps: true,
++    modelName: 'VendaComanda',
++  } as any,
++);
++
++(VendaComanda as any).associate = function(models: IModelFactory) {
++  const VendaItemModel = models.VendaItem as ModelCtor<any> | undefined;
++  const VendaMesaModel = models.VendaMesa as ModelCtor<any> | undefined;
++  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
++  const CaixaModel = models.Caixa as ModelCtor<any> | undefined;
++
++  if (VendaItemModel) {
++    VendaComanda.hasMany(VendaItemModel, { foreignKey: 'id_venda', as: 'itens' });
++  }
++  if (VendaMesaModel) {
++    VendaComanda.belongsTo(VendaMesaModel, { foreignKey: 'id_mesa', as: 'mesa' });
++  }
++  if (UnidadeModel) {
++    VendaComanda.belongsTo(UnidadeModel, { foreignKey: 'unidade_id', as: 'unidade' });
++  }
++  if (CaixaModel) {
++    VendaComanda.belongsTo(CaixaModel, { foreignKey: 'id_caixa', as: 'caixa' });
++  }
++};
++
+*** End Patch for src/models/VendaComanda.ts
+*** Add/Update File: src/models/ItemEstoque.ts
++// src/models/ItemEstoque.ts
++import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
++import { connection } from '../config/sequelize';
++import { IModelFactory } from '../config/types';
++
++export interface ItemEstoqueAttributes {
++  id_item: number;
++  unidade_id: number;
++  nome: string;
++  unidade_medida: string;
++  estoque_atual: number;
++  estoque_minimo: number;
++  preco_custo_unitario: number;
++  preco_venda: number;
++  is_vendavel: boolean;
++  is_pre_pronto: boolean;
++  tipo_item: 'INGREDIENTE' | 'PRODUCAO' | 'PRODUTO_FINAL';
++  createdAt?: Date;
++  updatedAt?: Date;
++}
++
++export interface ItemEstoqueCreationAttributes extends Optional<
++  ItemEstoqueAttributes,
++  'id_item' | 'estoque_atual' | 'preco_custo_unitario' | 'preco_venda' | 'estoque_minimo'
++> {}
++
++export interface ItemEstoqueModel extends Model<ItemEstoqueAttributes, ItemEstoqueCreationAttributes>, ItemEstoqueAttributes {
++  getSaldoAtual(): number;
++  getProntoPedido(): number;
++}
++
++const ItemEstoque: ModelCtor<ItemEstoqueModel> = connection.define<ItemEstoqueModel>(
++  'ItemEstoque',
++  {
++    id_item: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true, field: 'id_item' },
++    unidade_id: {
++      type: DataTypes.INTEGER,
++      allowNull: false,
++      comment: 'ID da Unidade de negócio (Regra R4)',
++      references: { model: 'UNIDADES', key: 'id_unidade' },
++    },
++    nome: { type: DataTypes.STRING(100), allowNull: false },
++    unidade_medida: { type: DataTypes.STRING(20), allowNull: false },
++    tipo_item: { type: DataTypes.ENUM('INGREDIENTE', 'PRODUCAO', 'PRODUTO_FINAL'), allowNull: false, defaultValue: 'INGREDIENTE' },
++    estoque_atual: {
++      type: DataTypes.DECIMAL(10, 3),
++      allowNull: false,
++      defaultValue: 0,
++      get() { return parseFloat(this.getDataValue('estoque_atual') as unknown as string); }
++    },
++    estoque_minimo: {
++      type: DataTypes.DECIMAL(10, 3),
++      allowNull: false,
++      defaultValue: 0,
++      get() { return parseFloat(this.getDataValue('estoque_minimo') as unknown as string); }
++    },
++    preco_custo_unitario: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      defaultValue: 0,
++      get() { return parseFloat(this.getDataValue('preco_custo_unitario') as unknown as string); }
++    },
++    preco_venda: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      defaultValue: 0,
++      get() { return parseFloat(this.getDataValue('preco_venda') as unknown as string); }
++    },
++    is_vendavel: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
++    is_pre_pronto: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
++    saldo_atual: {
++      type: DataTypes.VIRTUAL,
++      get() { return this.getDataValue('estoque_atual'); }
++    },
++    pronto_pedido: {
++      type: DataTypes.VIRTUAL,
++      get() {
++        const atual = this.getDataValue('estoque_atual') || 0;
++        const minimo = this.getDataValue('estoque_minimo') || 0;
++        return atual - minimo;
++      }
++    },
++  },
++  {
++    tableName: 'PRODUTOS',
++    timestamps: true,
++    modelName: 'ItemEstoque',
++  } as any,
++);
++
++(ItemEstoque as any).associate = function(models: IModelFactory) {
++  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
++  const VendaItemModel = models.VendaItem as ModelCtor<any> | undefined;
++  const EstoqueRegistroModel = models.EstoqueRegistroMovimento as ModelCtor<any> | undefined;
++  const FichaTecnicaModel = models.FichaTecnica as ModelCtor<any> | undefined;
++
++  if (UnidadeModel) {
++    ItemEstoque.belongsTo(UnidadeModel, { foreignKey: 'unidade_id', as: 'unidade' });
++  }
++  if (VendaItemModel) {
++    ItemEstoque.hasMany(VendaItemModel, { foreignKey: 'id_produto', as: 'vendaItems' });
++  }
++  if (EstoqueRegistroModel) {
++    ItemEstoque.hasMany(EstoqueRegistroModel, { foreignKey: 'id_item', as: 'movimentos' });
++  }
++  if (FichaTecnicaModel) {
++    ItemEstoque.hasMany(FichaTecnicaModel, { foreignKey: 'id_produto_pai', as: 'fichaTecnica' });
++  }
++};
++
++export default ItemEstoque;
++
+*** End Patch for src/models/ItemEstoque.ts
+*** Add/Update File: src/models/VendaItem.ts
++// src/models/VendaItem.ts
++import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
++import { connection } from '../config/sequelize';
++import { IModelFactory } from '../config/types';
++
++export type StatusItem = 'ABERTO' | 'PREPARANDO' | 'ENTREGUE' | 'CANCELADO';
++
++export interface VendaItemAttributes {
++  id_item_venda: number;
++  unidade_id: number;
++  id_venda: number;
++  id_produto: number;
++  quantidade: number;
++  preco_unitario: number;
++  preco_venda_total: number;
++  custo_total: number;
++  status_item: StatusItem;
++  createdAt?: Date;
++  updatedAt?: Date;
++}
++
++export interface VendaItemCreationAttributes extends Optional<
++  VendaItemAttributes,
++  'id_item_venda' | 'preco_venda_total' | 'custo_total' | 'status_item'
++> {}
++
++export interface VendaItemModel extends Model<VendaItemAttributes, VendaItemCreationAttributes>, VendaItemAttributes {}
++
++const VendaItem: ModelCtor<VendaItemModel> = connection.define<VendaItemModel>(
++  'VendaItem',
++  {
++    id_item_venda: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
++    unidade_id: { type: DataTypes.INTEGER, allowNull: false, comment: 'ID da Unidade de negócio (Regra R4)' },
++    id_venda: { type: DataTypes.INTEGER, allowNull: false },
++    id_produto: { type: DataTypes.INTEGER, allowNull: false },
++    quantidade: {
++      type: DataTypes.DECIMAL(10, 3),
++      allowNull: false,
++      get() { return parseFloat(this.getDataValue('quantidade') as unknown as string); }
++    },
++    preco_unitario: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      get() { return parseFloat(this.getDataValue('preco_unitario') as unknown as string); }
++    },
++    preco_venda_total: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      defaultValue: 0.0,
++      get() { return parseFloat(this.getDataValue('preco_venda_total') as unknown as string); }
++    },
++    custo_total: {
++      type: DataTypes.DECIMAL(10, 2),
++      allowNull: false,
++      defaultValue: 0.0,
++      get() { return parseFloat(this.getDataValue('custo_total') as unknown as string); }
++    },
++    status_item: {
++      type: DataTypes.ENUM('ABERTO', 'PREPARANDO', 'ENTREGUE', 'CANCELADO'),
++      allowNull: false,
++      defaultValue: 'ABERTO',
++    },
++  },
++  {
++    tableName: 'ITENS_VENDA',
++    sequelize: connection,
++    timestamps: true,
++    modelName: 'VendaItem',
++  } as any,
++);
++
++(VendaItem as any).associate = function (models: IModelFactory) {
++  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
++  const VendaComandaModel = models.VendaComanda as ModelCtor<any> | undefined;
++  const ItemEstoqueModel = models.ItemEstoque as ModelCtor<any> | undefined;
++  const VendaImpostoModel = models.VendaImposto as ModelCtor<any> | undefined;
++  const VendaComissaoModel = models.VendaComissao as ModelCtor<any> | undefined;
++
++  if (UnidadeModel) {
++    VendaItem.belongsTo(UnidadeModel, { foreignKey: 'unidade_id', as: 'unidade' });
++  }
++  if (VendaComandaModel) {
++    VendaItem.belongsTo(VendaComandaModel, { foreignKey: 'id_venda', as: 'vendaComanda' });
++  }
++  if (ItemEstoqueModel) {
++    VendaItem.belongsTo(ItemEstoqueModel, { foreignKey: 'id_produto', as: 'itemEstoque' });
++  }
++  if (VendaImpostoModel) {
++    VendaItem.hasMany(VendaImpostoModel, { foreignKey: 'id_venda_item', as: 'impostos' });
++  }
++  if (VendaComissaoModel) {
++    VendaItem.hasMany(VendaComissaoModel, { foreignKey: 'id_venda_item', as: 'comissoes' });
++  }
++};
++
++export default VendaItem;
++
+*** End Patch for src/models/VendaItem.ts
+*** Add/Update File: src/controllers/VendaItemController.ts
++// src/controllers/VendaItemController.ts
++import { Request, Response } from 'express';
++import { z } from 'zod';
++import VendaItemService, {
++  VendaFechadaError,
++  ProdutoInvalidoError,
++  EstoqueInsuficienteError,
++  VendaItemNaoEncontradoError,
++} from '../services/VendaItemService';
++
++class VendaItemController {
++  private service: VendaItemService;
++  constructor() { this.service = new VendaItemService(); }
++  private adicionarItemSchema = z.object({
++    id_venda: z.number().int().positive(),
++    id_produto: z.number().int().positive(),
++    quantidade: z.number().positive(),
++    colaborador_id: z.number().int().positive(),
++  });
++  private removerItemSchema = z.object({
++    colaborador_id: z.number().int().positive(),
++  });
++  async store(req: Request, res: Response): Promise<Response> {
++    try {
++      const payload = this.adicionarItemSchema.parse(req.body);
++      const novoItem = await this.service.adicionarItem({ ...payload });
++      return res.status(201).json({ message: 'Item adicionado com sucesso!', item: novoItem });
++    } catch (error) {
++      if (error instanceof z.ZodError) {
++        return res.status(400).json({ error: 'Dados de entrada inválidos.', details: error.issues });
++      }
++      if (error instanceof EstoqueInsuficienteError) {
++        return res.status(409).json({ error: 'Estoque Insuficiente.', details: error.message });
++      }
++      if (error instanceof VendaFechadaError) {
++        return res.status(409).json({ error: 'Operação Inválida.', details: error.message });
++      }
++      if (error instanceof ProdutoInvalidoError) {
++        return res.status(422).json({ error: 'Produto Inválido.', details: error.message });
++      }
++      console.error('❌ ERRO INTERNO NO CONTROLLER AO ADICIONAR ITEM:', error);
++      return res.status(500).json({ error: 'Erro interno ao adicionar item à venda.', details: (error as Error).message });
++    }
++  }
++  async destroy(req: Request, res: Response): Promise<Response> {
++    const id_venda_item = parseInt(req.params.id_venda_item || req.params.id, 10);
++    if (isNaN(id_venda_item)) return res.status(400).json({ error: 'ID do Item de Venda inválido.' });
++    try {
++      const payload = this.removerItemSchema.parse(req.body);
++      await this.service.removerItem({ id_venda_item, colaborador_id: payload.colaborador_id });
++      return res.status(200).json({ message: `Item de Venda ID ${id_venda_item} removido com sucesso.` });
++    } catch (error) {
++      if (error instanceof z.ZodError) {
++        return res.status(400).json({ error: 'Dados de entrada inválidos. Colaborador ID é obrigatório.', details: error.issues });
++      }
++      if (error instanceof VendaItemNaoEncontradoError) {
++        return res.status(404).json({ error: 'Item de Venda Não Encontrado.', details: error.message });
++      }
++      if (error instanceof VendaFechadaError) {
++        return res.status(409).json({ error: 'Operação Inválida.', details: error.message });
++      }
++      console.error('❌ ERRO NO CONTROLLER AO REMOVER ITEM:', error);
++      return res.status(500).json({ error: 'Erro interno ao remover item da venda.', details: (error as Error).message });
++    }
++  }
++}
++export default new VendaItemController();
++
+*** End Patch for src/controllers/VendaItemController.ts
+*** Add/Update File: src/services/VendaItemService.ts
++// src/services/VendaItemService.ts
++import { Transaction } from 'sequelize';
++import { connection } from '../config/sequelize';
++import VendaComanda from '../models/VendaComanda';
++import VendaItem, { VendaItemModel } from '../models/VendaItem';
++import ItemEstoque, { ItemEstoqueModel } from '../models/ItemEstoque';
++import { EstoqueService } from './EstoqueService';
++import { FichaTecnicaService } from './FichaTecnicaService';
++import DecimalCtor from 'decimal.js';
++import { TipoMovimentoEstoque } from '../models/EstoqueRegistroMovimento';
++
++class VendaFechadaError extends Error { constructor(m: string) { super(m); this.name = 'VendaFechadaError'; } }
++class ProdutoInvalidoError extends Error { constructor(m: string) { super(m); this.name = 'ProdutoInvalidoError'; } }
++class EstoqueInsuficienteError extends Error { constructor(m: string) { super(m); this.name = 'EstoqueInsuficienteError'; } }
++class VendaItemNaoEncontradoError extends Error { constructor(m: string) { super(m); this.name = 'VendaItemNaoEncontradoError'; } }
++
++export { VendaFechadaError, ProdutoInvalidoError, EstoqueInsuficienteError, VendaItemNaoEncontradoError };
++export interface AdicionarItemPayload { id_venda: number; id_produto: number; quantidade: number; colaborador_id: number; }
++export interface RemoverItemPayload { id_venda_item: number; colaborador_id: number; }
++
++export default class VendaItemService {
++  private estoqueService: EstoqueService;
++  private fichaTecnicaService: FichaTecnicaService;
++  constructor() { this.estoqueService = new EstoqueService(); this.fichaTecnicaService = new FichaTecnicaService(); }
++  private async realizarBaixaEstoque(idProdutoVendido: number, quantidadeVenda: number, idVenda: number, colaboradorId: number, unidadeId: number, transaction: Transaction): Promise<number> {
++    const composicao = await this.fichaTecnicaService.findFichaTecnica(idProdutoVendido, unidadeId, transaction);
++    let custoTotalVenda = new DecimalCtor(0);
++    if (!composicao || composicao.length === 0) {
++      const produto = (await ItemEstoque.findOne({ where: { id_item: idProdutoVendido, unidade_id: unidadeId }, transaction, lock: transaction.LOCK.UPDATE })) as ItemEstoqueModel | null;
++      if (!produto || !produto.is_vendavel) throw new ProdutoInvalidoError(`Produto ID ${idProdutoVendido} não encontrado ou não é vendável.`);
++      try {
++        const { custo_saida } = await this.estoqueService.saidaEstoque(produto, quantidadeVenda, unidadeId, 'SAIDA_VENDA' as TipoMovimentoEstoque, `Saída para Venda #${idVenda} (Produto sem FT)`, `VENDA#${idVenda}`, colaboradorId, transaction);
++        custoTotalVenda = custoTotalVenda.plus(custo_saida);
++      } catch (err) {
++        if ((err as Error).message.includes('Estoque insuficiente')) throw new EstoqueInsuficienteError((err as Error).message);
++        throw err;
++      }
++    } else {
++      for (const itemFT of composicao) {
++        const qtd_a_abater = new DecimalCtor(quantidadeVenda).times(itemFT.quantidade_necessaria).toNumber();
++        const id_materia_prima = itemFT.id_produto_filho;
++        const insumo = (await ItemEstoque.findOne({ where: { id_item: id_materia_prima, unidade_id: unidadeId }, transaction, lock: transaction.LOCK.UPDATE })) as ItemEstoqueModel | null;
++        if (!insumo) throw new ProdutoInvalidoError(`Insumo ID ${id_materia_prima} da Ficha Técnica não encontrado.`);
++        try {
++          const { custo_saida } = await this.estoqueService.saidaEstoque(insumo, qtd_a_abater, unidadeId, 'CONSUMO_VENDA' as TipoMovimentoEstoque, `Consumo para Venda #${idVenda} (Insumo: ${insumo.nome})`, `VENDA#${idVenda}`, colaboradorId, transaction);
++          custoTotalVenda = custoTotalVenda.plus(custo_saida);
++        } catch (err) {
++          if ((err as Error).message.includes('Estoque insuficiente')) throw new EstoqueInsuficienteError(`Estoque insuficiente para o insumo ${insumo.nome} (ID: ${id_materia_prima}).`);
++          throw err;
++        }
++      }
++    }
++    return custoTotalVenda.toNumber();
++  }
++  private async reverterBaixaEstoque(itemParaRemover: VendaItemModel, idVenda: number, colaboradorId: number, unidadeId: number, transaction: Transaction): Promise<number> {
++    const idProdutoRemovido = itemParaRemover.id_produto;
++    const quantidadeRemovida = itemParaRemover.quantidade;
++    const custoRemovidoTotal = new DecimalCtor(itemParaRemover.custo_total);
++    const custoUnitarioReversao = custoRemovidoTotal.div(quantidadeRemovida).toNumber();
++    const composicao = await this.fichaTecnicaService.findFichaTecnica(idProdutoRemovido, unidadeId, transaction);
++    let custoTotalRevertido = new DecimalCtor(0);
++    if (!composicao || composicao.length === 0) {
++      const produto = (await ItemEstoque.findOne({ where: { id_item: idProdutoRemovido, unidade_id: unidadeId }, transaction, lock: transaction.LOCK.UPDATE })) as ItemEstoqueModel | null;
++      if (!produto) throw new ProdutoInvalidoError(`Produto ID ${idProdutoRemovido} não encontrado.`);
++      await this.estoqueService.entradaEstoque(produto, quantidadeRemovida, custoUnitarioReversao, unidadeId, 'AJUSTE_ENTRADA' as TipoMovimentoEstoque, `Devolução p/ remoção Item Venda #${itemParaRemover.id_item_venda}`, `DEV_VENDA_ITEM#${itemParaRemover.id_item_venda}`, colaboradorId, transaction);
++      custoTotalRevertido = custoTotalRevertido.plus(itemParaRemover.custo_total);
++    } else {
++      for (const itemFT of composicao) {
++        const qtd_a_reverter = new DecimalCtor(quantidadeRemovida).times(itemFT.quantidade_necessaria).toNumber();
++        const id_materia_prima = itemFT.id_produto_filho;
++        const insumo = (await ItemEstoque.findOne({ where: { id_item: id_materia_prima, unidade_id: unidadeId }, transaction, lock: transaction.LOCK.UPDATE })) as ItemEstoqueModel | null;
++        if (!insumo) throw new ProdutoInvalidoError(`Insumo ID ${id_materia_prima} da Ficha Técnica não encontrado.`);
++        const custoUnitarioInsumoAtual = new DecimalCtor(insumo.preco_custo_unitario).toNumber();
++        await this.estoqueService.entradaEstoque(insumo, qtd_a_reverter, custoUnitarioInsumoAtual, unidadeId, 'AJUSTE_ENTRADA' as TipoMovimentoEstoque, `Devolução consumo remoção Item Venda #${itemParaRemover.id_item_venda}`, `DEV_VENDA_ITEM#${itemParaRemover.id_item_venda}`, colaboradorId, transaction);
++        custoTotalRevertido = custoTotalRevertido.plus(custoRemovidoTotal);
++        break;
++      }
++    }
++    return custoTotalRevertido.toNumber();
++  }
++  public async adicionarItem(payload: AdicionarItemPayload): Promise<VendaItemModel> {
++    const transaction: Transaction = await connection.transaction();
++    try {
++      const { id_venda, id_produto, quantidade, colaborador_id } = payload;
++      const venda = await VendaComanda.findOne({ where: { id_venda }, transaction });
++      if (!venda || venda.status_venda !== 'ABERTA') throw new VendaFechadaError(`Venda com ID ${id_venda} não encontrada ou não está aberta.`);
++      const unidade_id = (venda as any).unidade_id;
++      const produtoVendido = (await ItemEstoque.findOne({ where: { id_item: id_produto, unidade_id }, transaction })) as ItemEstoqueModel | null;
++      if (!produtoVendido || !produtoVendido.is_vendavel) throw new ProdutoInvalidoError(`Produto com ID ${id_produto} não encontrado ou não é vendável.`);
++      const custo_saida = await this.realizarBaixaEstoque(id_produto, quantidade, id_venda, colaborador_id, unidade_id, transaction);
++      const precoVenda = new DecimalCtor(produtoVendido.preco_venda);
++      const precoTotalItem = precoVenda.times(quantidade);
++      const novoItemData = { id_venda, id_produto, quantidade, preco_unitario: precoVenda.toNumber(), preco_venda_total: precoTotalItem.toNumber(), custo_total: custo_saida, status_item: 'ABERTO' as any, unidade_id };
++      const novoItem = await VendaItem.create(novoItemData as any, { transaction });
++      const valorTotalAtual = new DecimalCtor(venda.valor_total);
++      const custoTotalAtual = new DecimalCtor(venda.custo_total);
++      await venda.update({ valor_total: valorTotalAtual.plus(precoTotalItem).toNumber(), custo_total: custoTotalAtual.plus(custo_saida).toNumber() }, { transaction });
++      await transaction.commit();
++      return novoItem as VendaItemModel;
++    } catch (error) {
++      await transaction.rollback();
++      console.error('❌ ERRO AO ADICIONAR ITEM À VENDA:', (error as Error).message);
++      throw error;
++    }
++  }
++  public async removerItem(payload: RemoverItemPayload): Promise<void> {
++    const { id_venda_item, colaborador_id } = payload;
++    const transaction: Transaction = await connection.transaction();
++    try {
++      const itemParaRemover = (await VendaItem.findByPk(id_venda_item, { transaction, lock: transaction.LOCK.UPDATE })) as VendaItemModel | null;
++      if (!itemParaRemover) throw new VendaItemNaoEncontradoError(`Item de Venda ID ${id_venda_item} não encontrado.`);
++      const unidade_id = (itemParaRemover as any).unidade_id;
++      const id_venda = itemParaRemover.id_venda;
++      const venda = await VendaComanda.findByPk(id_venda, { transaction, lock: transaction.LOCK.UPDATE });
++      if (!venda || venda.status_venda !== 'ABERTA') throw new VendaFechadaError(`Venda com ID ${id_venda} não está aberta. Não é possível remover itens.`);
++      await this.reverterBaixaEstoque(itemParaRemover, id_venda, colaborador_id, unidade_id, transaction);
++      const valorTotalAtual = new DecimalCtor(venda.valor_total);
++      const custoTotalAtual = new DecimalCtor(venda.custo_total);
++      const valorRemovido = new DecimalCtor(itemParaRemover.preco_venda_total);
++      const custoRemovido = new DecimalCtor(itemParaRemover.custo_total);
++      await venda.update({ valor_total: valorTotalAtual.minus(valorRemovido).toNumber(), custo_total: custoTotalAtual.minus(custoRemovido).toNumber() }, { transaction });
++      await itemParaRemover.destroy({ transaction });
++      await transaction.commit();
++    } catch (error) {
++      await transaction.rollback();
++      console.error(`❌ ERRO AO REMOVER ITEM DE VENDA ID ${id_venda_item}:`, (error as Error).message);
++      throw error;
++    }
++  }
++}
++
+*** End Patch for src/services/VendaItemService.ts
+-----END PATCH-----

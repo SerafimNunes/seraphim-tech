@@ -13,13 +13,13 @@ contabilidadeRouter.use(authMiddleware); // Protege todas as rotas de contabilid
 
 contabilidadeRouter.get(
   "/contabilidade/alerta-simples",
-  rbacMiddleware(CONTABILIDADE_ROLES),
+  podeAcessar(CONTABILIDADE_ROLES),
   ContabilidadeController.getAlertaSimples
 );
 
 contabilidadeRouter.get(
   "/contabilidade/documento-gerencial",
-  rbacMiddleware(CONTABILIDADE_ROLES),
+  podeAcessar(CONTABILIDADE_ROLES),
   ContabilidadeController.gerarDocumentoGerencial
 );
 

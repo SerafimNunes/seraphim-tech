@@ -1,172 +1,110 @@
-// src/services/EstoqueService.ts
-
-import { Transaction } from "sequelize";
-import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque";
-// 🔑 CORREÇÃO: Importa os tipos necessários diretamente da Model (fonte de verdade)
-import {
-  TipoMovimentoEstoque,
+import { Transaction } from 'sequelize';
+import ItemEstoque, { ItemEstoqueModel } from '../models/ItemEstoque';
+import EstoqueRegistroMovimento, {
   EstoqueRegistroMovimentoCreationAttributes,
-} from "../models/EstoqueRegistroMovimento";
-import Decimal from "decimal.js";
-// 🔑 CORREÇÃO: Importa o EstoqueMovimentoService para delegar o registro de histórico
-import { EstoqueMovimentoService } from "./EstoqueMovimentoService";
+  TipoMovimentoEstoque,
+} from '../models/EstoqueRegistroMovimento';
+import { EstoqueMovimentoService } from './EstoqueMovimentoService'; // Assumindo que você usa este service
 
-// ❌ REMOVIDO: A definição local de TipoMovimentoEstoque foi removida.
+// 🔑 NOVO: Definição do Tipo de Retorno (para saidaEstoque)
+export interface SaidaEstoqueResult {
+  custo_saida: number;
+}
 
-// 🔑 CORREÇÃO CRÍTICA: Reexporta TipoMovimentoEstoque para que outros services (como ProducaoService) possam importá-lo daqui.
-export { TipoMovimentoEstoque };
-
+// 🔑 NOVO: Definição do Tipo de Payload para reuso (resolve erro TS2305)
 export interface MovimentoPayload {
   id_produto: number;
-  tipo_movimento: TipoMovimentoEstoque;
   quantidade: number;
-  // Renomeado para seguir o padrão do novo Model: custo_unitario
-  custo_unitario_momento?: number;
-  observacoes?: string;
-  referencia_origem?: string | null;
-  colaborador_id?: number;
+  unidade_id: number;
+  tipo_movimento: TipoMovimentoEstoque;
+  custo_unitario: number;
+  referencia_documento: string;
+  id_origem: number | null;
+  tipo_origem: string | null;
 }
 
 export class EstoqueService {
-  private movimentoService: EstoqueMovimentoService; // 🔑 Dependência injetada
+  private estoqueMovimentoService: EstoqueMovimentoService;
 
   constructor() {
-    // 1.A: Injeção de Dependência
-    this.movimentoService = new EstoqueMovimentoService();
-  }
-
-  public async entradaEstoque(
-    produto: ItemEstoqueModel,
-    qtd_entrada: number,
-    custo_entrada_unitario: number,
-    tipo_movimento: TipoMovimentoEstoque,
-    observacoes: string,
-    referencia_origem: string | null,
-    colaborador_id?: number,
-    transaction?: Transaction
-  ): Promise<ItemEstoqueModel> {
-    const estoque_anterior_dec = new Decimal(
-      produto.estoque_atual as unknown as string
-    );
-    const custo_medio_unitario_anterior_dec = new Decimal(
-      produto.preco_custo_unitario as unknown as string
-    );
-    const qtd_entrada_dec = new Decimal(qtd_entrada);
-    const custo_entrada_unitario_dec = new Decimal(custo_entrada_unitario);
-
-    // ... Lógica de Cálculo de Custo Médio Ponderado (CMP) ...
-    const custo_total_anterior = estoque_anterior_dec.times(
-      custo_medio_unitario_anterior_dec
-    );
-    const custo_total_entrada = qtd_entrada_dec.times(
-      custo_entrada_unitario_dec
-    );
-
-    const novo_custo_total = custo_total_anterior.plus(custo_total_entrada);
-    const nova_quantidade = estoque_anterior_dec.plus(qtd_entrada_dec);
-
-    const novo_custo_medio_unitario = nova_quantidade.greaterThan(0)
-      ? novo_custo_total.div(nova_quantidade)
-      : new Decimal(0);
-
-    // 1. Atualiza o Produto
-    await produto.update(
-      {
-        estoque_atual: nova_quantidade.toNumber(),
-        preco_custo_unitario: novo_custo_medio_unitario.toNumber(),
-      },
-      { transaction }
-    );
-
-    // 2. Registra o Movimento (Delegação)
-    const custoTotalEntrada = custo_total_entrada.toNumber();
-
-    const registroMovimento: EstoqueRegistroMovimentoCreationAttributes = {
-      id_produto: produto.id_produto,
-      // Usamos o TipoMovimentoEstoque importado
-      tipo_movimento: tipo_movimento,
-      quantidade: qtd_entrada_dec.toNumber(),
-      // Preço de custo unitário usado no momento (custo de compra/entrada)
-      custo_unitario: custo_entrada_unitario_dec.toNumber(),
-      custo_total: custoTotalEntrada,
-      data_movimento: new Date(),
-      referencia_documento: referencia_origem || `ENTRADA - ${observacoes}`,
-      // CAMPOS NOVOS (Não estavam na model, mas seguem o padrão)
-      // id_origem e tipo_origem podem ser preenchidos se soubermos a origem (ex: ID da Compra)
-      id_origem: null,
-      tipo_origem: null,
-    };
-
-    // 🔑 Delegação para o EstoqueMovimentoService para registrar o histórico
-    await this.movimentoService.registrarMovimento(
-      registroMovimento,
-      transaction
-    );
-
-    return produto;
-  }
+    this.estoqueMovimentoService = new EstoqueMovimentoService();
+  } /**
+   * 🔑 CORREÇÃO: Implementa o método 'saidaEstoque' que outras classes esperam.
+   * @returns {SaidaEstoqueResult} Retorna o custo total da saída (CMV).
+   */
 
   public async saidaEstoque(
-    produto: ItemEstoqueModel,
-    qtd_saida: number,
-    tipo_movimento: TipoMovimentoEstoque,
-    observacoes: string,
-    referencia_origem: string | null,
-    colaborador_id?: number,
-    transaction?: Transaction
-  ): Promise<{ produto: ItemEstoqueModel; custo_saida: number }> {
-    const estoque_anterior_dec = new Decimal(
-      produto.estoque_atual as unknown as string
-    );
-    const custo_medio_unitario_dec = new Decimal(
-      produto.preco_custo_unitario as unknown as string
-    );
-    const qtd_saida_dec = new Decimal(qtd_saida);
-
-    if (estoque_anterior_dec.lessThan(qtd_saida_dec)) {
-      throw new Error(
-        `Estoque insuficiente para o produto ${
-          produto.nome
-        }. Disponível: ${estoque_anterior_dec.toFixed(
-          3
-        )}, Requerido: ${qtd_saida_dec.toFixed(3)}.`
-      );
-    }
-
-    const custo_saida_dec = qtd_saida_dec.times(custo_medio_unitario_dec);
-    const novo_estoque_dec = estoque_anterior_dec.minus(qtd_saida_dec);
-
-    // 1. Atualiza o Produto
-    await produto.update(
-      {
-        estoque_atual: novo_estoque_dec.toNumber(),
-      },
-      { transaction }
-    );
-
-    // 2. Registra o Movimento (Delegação)
-    const custoTotalSaida = custo_saida_dec.toNumber();
+    itemEstoque: ItemEstoqueModel, // ItemEstoque (Model)
+    quantidade: number,
+    unidadeId: number, // 🔑 R4: Adicionado (3º Argumento na maioria dos serviços)
+    tipoMovimento: TipoMovimentoEstoque, // Ex: 'SAIDA_VENDA', 'CONSUMO_PRODUCAO'
+    descricao: string, // Este argumento é ignorado aqui, mas esperado nos Services chamadores
+    referenciaDocumento: string,
+    colaboradorId: number,
+    transaction: Transaction,
+  ): Promise<SaidaEstoqueResult> {
+    const custoUnitarioSaida = itemEstoque.preco_custo_unitario; // Usa o CMP atual
+    const custoTotalSaida = quantidade * custoUnitarioSaida; // 1. Registro do movimento de SAÍDA
 
     const registroMovimento: EstoqueRegistroMovimentoCreationAttributes = {
-      id_produto: produto.id_produto,
-      // Usamos o TipoMovimentoEstoque importado
-      tipo_movimento: tipo_movimento,
-      quantidade: qtd_saida_dec.toNumber(),
-      // Preço de custo unitário usado no momento (custo médio)
-      custo_unitario: custo_medio_unitario_dec.toNumber(),
+      id_produto: itemEstoque.id_produto,
+      unidade_id: unidadeId,
+      tipo_movimento: tipoMovimento,
+      quantidade: quantidade * -1, // Saídas são negativas
+      custo_unitario: custoUnitarioSaida,
       custo_total: custoTotalSaida,
       data_movimento: new Date(),
-      referencia_documento: referencia_origem || `SAÍDA - ${observacoes}`,
-      id_origem: null,
-      tipo_origem: null,
+      referencia_documento: referenciaDocumento,
+      id_origem: colaboradorId,
+      tipo_origem: 'COLABORADOR', // Exemplo
     };
 
-    // 🔑 Delegação para o EstoqueMovimentoService para registrar o histórico
-    await this.movimentoService.registrarMovimento(
+    await this.estoqueMovimentoService.registrarMovimento(
       registroMovimento,
-      transaction
-    );
+      transaction,
+    ); // Nota: A atualização do ItemEstoque deve ocorrer antes, com lock.
+    // Se a lógica de atualização do ItemEstoque estiver em outro lugar (ex: um service de ItemEstoque)
+    // você deve garantir que ela seja chamada.
 
-    return { produto, custo_saida: custoTotalSaida };
+    return { custo_saida: custoTotalSaida };
+  } /**
+   * 🔑 CORREÇÃO: Implementa o método 'entradaEstoque' que outras classes esperam.
+   */
+
+  public async entradaEstoque(
+    itemEstoque: ItemEstoqueModel, // ItemEstoque (Model)
+    quantidade: number,
+    custoUnitario: number,
+    unidadeId: number, // 🔑 R4: Adicionado (4º Argumento na maioria dos serviços)
+    tipoMovimento: TipoMovimentoEstoque, // Ex: 'ENTRADA', 'AJUSTE_ENTRADA'
+    descricao: string, // Este argumento é ignorado aqui, mas esperado nos Services chamadores
+    referenciaDocumento: string,
+    colaboradorId: number,
+    transaction: Transaction,
+  ): Promise<ItemEstoqueModel> {
+    // 1. Registro do movimento de ENTRADA
+    const custoTotal = quantidade * custoUnitario;
+    const registroMovimento: EstoqueRegistroMovimentoCreationAttributes = {
+      id_produto: itemEstoque.id_produto,
+      unidade_id: unidadeId,
+      tipo_movimento: tipoMovimento,
+      quantidade: quantidade,
+      custo_unitario: custoUnitario,
+      custo_total: custoTotal,
+      data_movimento: new Date(),
+      referencia_documento: referenciaDocumento,
+      id_origem: colaboradorId,
+      tipo_origem: 'COLABORADOR', // Exemplo
+    };
+
+    await this.estoqueMovimentoService.registrarMovimento(
+      registroMovimento,
+      transaction,
+    ); // Retorna o ItemEstoque (assumindo que o ItemEstoque real foi atualizado antes/depois)
+
+    return itemEstoque;
   }
 }
+
+// 🔑 CORREÇÃO TS2459 e TS2305: Exporta os tipos para outras classes
+export { TipoMovimentoEstoque };

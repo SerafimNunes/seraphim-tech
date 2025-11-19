@@ -3,7 +3,7 @@ import { DataTypes, Model, Optional } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory } from "@config/types";
 
-interface FeedbackAttributes {
+export interface FeedbackAttributes {
   id_feedback: number;
   venda_comanda_id: number;
   colaborador_id: number; // Colaborador (vendedor/atendente)

@@ -1,39 +1,46 @@
 // src/services/VendaItemService.ts
+import { Transaction, Op } from 'sequelize';
+import { connection } from '../config/sequelize';
+import VendaComanda from '../models/VendaComanda';
+import VendaItem, { VendaItemModel } from '../models/VendaItem';
+import ItemEstoque, { ItemEstoqueModel } from '../models/ItemEstoque';
+import { EstoqueService } from './EstoqueService';
+import { FichaTecnicaService } from './FichaTecnicaService';
+import DecimalCtor from 'decimal.js';
+import { TipoMovimentoEstoque } from '../models/EstoqueRegistroMovimento';
 
-import { Transaction } from "sequelize";
-import { connection } from "../config/sequelize";
-import VendaComanda from "../models/VendaComanda";
-import VendaItem, { VendaItemCreationAttributes } from "../models/VendaItem";
-import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque";
-import { EstoqueService } from "./EstoqueService"; // Serviço de Estoque
-import DecimalCtor from "decimal.js";
-// 🔑 Importa o TipoMovimentoEstoque real do Model (fonte de verdade)
-import { TipoMovimentoEstoque } from "../models/EstoqueRegistroMovimento";
-
-// Erros de Domínio (Melhor Prática - Regra 1.C aprimorada)
+// Erros de domínio
 class VendaFechadaError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "VendaFechadaError";
+  constructor(m: string) {
+    super(m);
+    this.name = 'VendaFechadaError';
   }
 }
-
 class ProdutoInvalidoError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ProdutoInvalidoError";
+  constructor(m: string) {
+    super(m);
+    this.name = 'ProdutoInvalidoError';
   }
 }
-
-// 🔑 NOVO ERRO: Para quando o item a ser removido não existe
+class EstoqueInsuficienteError extends Error {
+  constructor(m: string) {
+    super(m);
+    this.name = 'EstoqueInsuficienteError';
+  }
+}
 class VendaItemNaoEncontradoError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "VendaItemNaoEncontradoError";
+  constructor(m: string) {
+    super(m);
+    this.name = 'VendaItemNaoEncontradoError';
   }
 }
 
-export { VendaFechadaError, ProdutoInvalidoError, VendaItemNaoEncontradoError }; // Exporta os erros para o Controller
+export {
+  VendaFechadaError,
+  ProdutoInvalidoError,
+  EstoqueInsuficienteError,
+  VendaItemNaoEncontradoError,
+};
 
 export interface AdicionarItemPayload {
   id_venda: number;
@@ -41,8 +48,6 @@ export interface AdicionarItemPayload {
   quantidade: number;
   colaborador_id: number;
 }
-
-// Interface para o payload de remoção (requer o ID do item e do colaborador para auditoria)
 export interface RemoverItemPayload {
   id_venda_item: number;
   colaborador_id: number;
@@ -50,195 +55,292 @@ export interface RemoverItemPayload {
 
 export default class VendaItemService {
   private estoqueService: EstoqueService;
+  private fichaTecnicaService: FichaTecnicaService;
 
   constructor() {
-    // 1.A: Injeção de Dependência
     this.estoqueService = new EstoqueService();
+    this.fichaTecnicaService = new FichaTecnicaService();
+  }
+
+  private async realizarBaixaEstoque(
+    idProdutoVendido: number,
+    quantidadeVenda: number,
+    idVenda: number,
+    colaboradorId: number,
+    unidadeId: number,
+    transaction: Transaction,
+  ): Promise<number> {
+    const composicao = await this.fichaTecnicaService.findFichaTecnica(
+      idProdutoVendido,
+      unidadeId,
+      transaction,
+    );
+    let custoTotalVenda = new DecimalCtor(0);
+
+    if (!composicao || composicao.length === 0) {
+      const produto = (await ItemEstoque.findOne({
+        where: { id_item: idProdutoVendido, unidade_id: unidadeId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      })) as ItemEstoqueModel | null;
+      if (!produto || !produto.is_vendavel)
+        throw new ProdutoInvalidoError(
+          `Produto ID ${idProdutoVendido} não encontrado ou não é vendável.`,
+        );
+      try {
+        const { custo_saida } = await this.estoqueService.saidaEstoque(
+          produto,
+          quantidadeVenda,
+          unidadeId,
+          'SAIDA_VENDA' as TipoMovimentoEstoque,
+          `Saída para Venda #${idVenda} (Produto sem FT)`,
+          `VENDA#${idVenda}`,
+          colaboradorId,
+          transaction,
+        );
+        custoTotalVenda = custoTotalVenda.plus(custo_saida);
+      } catch (err) {
+        if ((err as Error).message.includes('Estoque insuficiente'))
+          throw new EstoqueInsuficienteError((err as Error).message);
+        throw err;
+      }
+    } else {
+      for (const itemFT of composicao) {
+        const qtd_a_abater = new DecimalCtor(quantidadeVenda)
+          .times(itemFT.quantidade_necessaria)
+          .toNumber();
+        const id_materia_prima = itemFT.id_produto_filho;
+        const insumo = (await ItemEstoque.findOne({
+          where: { id_item: id_materia_prima, unidade_id: unidadeId },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        })) as ItemEstoqueModel | null;
+        if (!insumo)
+          throw new ProdutoInvalidoError(
+            `Insumo ID ${id_materia_prima} da Ficha Técnica não encontrado.`,
+          );
+        try {
+          const { custo_saida } = await this.estoqueService.saidaEstoque(
+            insumo,
+            qtd_a_abater,
+            unidadeId,
+            'CONSUMO_VENDA' as TipoMovimentoEstoque,
+            `Consumo para Venda #${idVenda} (Insumo: ${insumo.nome})`,
+            `VENDA#${idVenda}`,
+            colaboradorId,
+            transaction,
+          );
+          custoTotalVenda = custoTotalVenda.plus(custo_saida);
+        } catch (err) {
+          if ((err as Error).message.includes('Estoque insuficiente'))
+            throw new EstoqueInsuficienteError(
+              `Estoque insuficiente para o insumo ${insumo.nome} (ID: ${id_materia_prima}).`,
+            );
+          throw err;
+        }
+      }
+    }
+
+    return custoTotalVenda.toNumber();
+  }
+
+  private async reverterBaixaEstoque(
+    itemParaRemover: VendaItemModel,
+    idVenda: number,
+    colaboradorId: number,
+    unidadeId: number,
+    transaction: Transaction,
+  ): Promise<number> {
+    const idProdutoRemovido = itemParaRemover.id_produto;
+    const quantidadeRemovida = itemParaRemover.quantidade;
+    const custoRemovidoTotal = new DecimalCtor(itemParaRemover.custo_total);
+    const custoUnitarioReversao = custoRemovidoTotal
+      .div(quantidadeRemovida)
+      .toNumber();
+
+    const composicao = await this.fichaTecnicaService.findFichaTecnica(
+      idProdutoRemovido,
+      unidadeId,
+      transaction,
+    );
+    let custoTotalRevertido = new DecimalCtor(0);
+
+    if (!composicao || composicao.length === 0) {
+      const produto = (await ItemEstoque.findOne({
+        where: { id_item: idProdutoRemovido, unidade_id: unidadeId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      })) as ItemEstoqueModel | null;
+      if (!produto)
+        throw new ProdutoInvalidoError(
+          `Produto ID ${idProdutoRemovido} não encontrado.`,
+        );
+      await this.estoqueService.entradaEstoque(
+        produto,
+        quantidadeRemovida,
+        custoUnitarioReversao,
+        unidadeId,
+        'AJUSTE_ENTRADA' as TipoMovimentoEstoque,
+        `Devolução p/ remoção Item Venda #${itemParaRemover.id_item_venda}`,
+        `DEV_VENDA_ITEM#${itemParaRemover.id_item_venda}`,
+        colaboradorId,
+        transaction,
+      );
+      custoTotalRevertido = custoTotalRevertido.plus(
+        itemParaRemover.custo_total,
+      );
+    } else {
+      for (const itemFT of composicao) {
+        const qtd_a_reverter = new DecimalCtor(quantidadeRemovida)
+          .times(itemFT.quantidade_necessaria)
+          .toNumber();
+        const id_materia_prima = itemFT.id_produto_filho;
+        const insumo = (await ItemEstoque.findOne({
+          where: { id_item: id_materia_prima, unidade_id: unidadeId },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        })) as ItemEstoqueModel | null;
+        if (!insumo)
+          throw new ProdutoInvalidoError(
+            `Insumo ID ${id_materia_prima} da Ficha Técnica não encontrado.`,
+          );
+        const custoUnitarioInsumoAtual = new DecimalCtor(
+          insumo.preco_custo_unitario,
+        ).toNumber();
+        await this.estoqueService.entradaEstoque(
+          insumo,
+          qtd_a_reverter,
+          custoUnitarioInsumoAtual,
+          unidadeId,
+          'AJUSTE_ENTRADA' as TipoMovimentoEstoque,
+          `Devolução consumo remoção Item Venda #${itemParaRemover.id_item_venda}`,
+          `DEV_VENDA_ITEM#${itemParaRemover.id_item_venda}`,
+          colaboradorId,
+          transaction,
+        );
+        custoTotalRevertido = custoTotalRevertido.plus(custoRemovidoTotal);
+        break;
+      }
+    }
+    return custoTotalRevertido.toNumber();
   }
 
   public async adicionarItem(
-    payload: AdicionarItemPayload
-  ): Promise<VendaItem> {
-    // 1.D: Inicia a transação
+    payload: AdicionarItemPayload,
+  ): Promise<VendaItemModel> {
     const transaction: Transaction = await connection.transaction();
-
     try {
-      const { id_venda, id_produto, quantidade } = payload;
-
-      // 1. Validar a Venda e o Produto (Regra 1.F - Acesso a Model)
+      const { id_venda, id_produto, quantidade, colaborador_id } = payload;
       const venda = await VendaComanda.findOne({
         where: { id_venda },
         transaction,
       });
-
-      if (!venda || venda.status_venda !== "ABERTA") {
+      if (!venda || venda.status_venda !== 'ABERTA')
         throw new VendaFechadaError(
-          `Venda com ID ${id_venda} não encontrada ou não está aberta.`
+          `Venda com ID ${id_venda} não encontrada ou não está aberta.`,
         );
-      }
-
-      const produto = (await ItemEstoque.findByPk(id_produto, {
+      const unidade_id = (venda as any).unidade_id;
+      const produtoVendido = (await ItemEstoque.findOne({
+        where: { id_item: id_produto, unidade_id },
         transaction,
-        lock: transaction.LOCK.UPDATE, // Lock na linha para garantir estoque
       })) as ItemEstoqueModel | null;
-
-      if (!produto || !produto.is_vendavel) {
+      if (!produtoVendido || !produtoVendido.is_vendavel)
         throw new ProdutoInvalidoError(
-          `Produto com ID ${id_produto} não encontrado ou não é vendável.`
+          `Produto com ID ${id_produto} não encontrado ou não é vendável.`,
         );
-      }
-
-      // 2. LÓGICA CRÍTICA: Realizar a baixa de estoque
-      const { custo_saida } = await this.estoqueService.saidaEstoque(
-        produto,
+      const custo_saida = await this.realizarBaixaEstoque(
+        id_produto,
         quantidade,
-        "SAIDA_VENDA",
-        `Saída para Venda #${id_venda}`, // Observações
-        `VENDA#${id_venda}`, // Referência do documento
-        payload.colaborador_id,
-        transaction
+        id_venda,
+        colaborador_id,
+        unidade_id,
+        transaction,
       );
-
-      // 3. Preparar e Criar o VendaItem
-      const precoVenda = new DecimalCtor(produto.preco_venda);
+      const precoVenda = new DecimalCtor(produtoVendido.preco_venda);
       const precoTotalItem = precoVenda.times(quantidade);
-
-      const novoItemData: VendaItemCreationAttributes = {
-        id_venda: id_venda,
-        id_produto: id_produto,
-        quantidade: quantidade,
-        // TODO: colaborador_id deve vir da requisição/sessão
+      const novoItemData = {
+        id_venda,
+        id_produto,
+        quantidade,
         preco_unitario: precoVenda.toNumber(),
         preco_venda_total: precoTotalItem.toNumber(),
         custo_total: custo_saida,
-        status_item: "ABERTO",
+        status_item: 'ABERTO' as any,
+        unidade_id,
       };
-
-      const novoItem = await VendaItem.create(novoItemData, { transaction });
-
-      // 4. Atualizar os totais da Venda (Comanda)
+      const novoItem = await VendaItem.create(novoItemData as any, {
+        transaction,
+      });
       const valorTotalAtual = new DecimalCtor(venda.valor_total);
       const custoTotalAtual = new DecimalCtor(venda.custo_total);
-
       await venda.update(
         {
           valor_total: valorTotalAtual.plus(precoTotalItem).toNumber(),
           custo_total: custoTotalAtual.plus(custo_saida).toNumber(),
         },
-        { transaction }
+        { transaction },
       );
-
-      // 5. Commit da transação
       await transaction.commit();
-
-      return novoItem;
+      return novoItem as VendaItemModel;
     } catch (error) {
-      // 1.D: Rollback em caso de erro
       await transaction.rollback();
       console.error(
-        "❌ ERRO AO ADICIONAR ITEM À VENDA:",
-        (error as Error).message
+        '❌ ERRO AO ADICIONAR ITEM À VENDA:',
+        (error as Error).message,
       );
-
-      throw error; // Propaga o erro (incluindo os customizados)
+      throw error;
     }
   }
 
-  /**
-   * 🔑 NOVO MÉTODO: Remove um item de venda, revertendo o estoque e ajustando a comanda.
-   * Este método é transacional.
-   */
   public async removerItem(payload: RemoverItemPayload): Promise<void> {
     const { id_venda_item, colaborador_id } = payload;
     const transaction: Transaction = await connection.transaction();
-
     try {
-      // 1. Encontrar e Bloquear o Item de Venda
-      const itemParaRemover = await VendaItem.findByPk(id_venda_item, {
+      const itemParaRemover = (await VendaItem.findByPk(id_venda_item, {
         transaction,
         lock: transaction.LOCK.UPDATE,
-      });
-
-      if (!itemParaRemover) {
+      })) as VendaItemModel | null;
+      if (!itemParaRemover)
         throw new VendaItemNaoEncontradoError(
-          `Item de Venda ID ${id_venda_item} não encontrado.`
+          `Item de Venda ID ${id_venda_item} não encontrado.`,
         );
-      }
-
+      const unidade_id = (itemParaRemover as any).unidade_id;
       const id_venda = itemParaRemover.id_venda;
-      const quantidadeRemovida = itemParaRemover.quantidade;
-      const custoRemovido = new DecimalCtor(itemParaRemover.custo_total);
-      const valorRemovido = new DecimalCtor(itemParaRemover.preco_venda_total);
-
-      // 2. Encontrar e Bloquear a Venda Comanda
       const venda = await VendaComanda.findByPk(id_venda, {
         transaction,
         lock: transaction.LOCK.UPDATE,
       });
-
-      if (!venda || venda.status_venda !== "ABERTA") {
+      if (!venda || venda.status_venda !== 'ABERTA')
         throw new VendaFechadaError(
-          `Venda com ID ${id_venda} não está aberta. Não é possível remover itens.`
+          `Venda com ID ${id_venda} não está aberta. Não é possível remover itens.`,
         );
-      }
-
-      // 3. Reverter Estoque (ENTRADA)
-      // Buscamos o item de estoque novamente (com lock)
-      const produtoEstoque = (await ItemEstoque.findByPk(
-        itemParaRemover.id_produto,
-        {
-          transaction,
-          lock: transaction.LOCK.UPDATE,
-        }
-      )) as ItemEstoqueModel | null;
-
-      if (!produtoEstoque) {
-        throw new ProdutoInvalidoError(
-          "Produto de estoque associado ao item não encontrado."
-        );
-      }
-
-      // Calcula o custo unitário da devolução (CUSTO MÉDIO de quando foi vendido)
-      const custoUnitarioReversao = custoRemovido
-        .div(quantidadeRemovida)
-        .toNumber();
-
-      await this.estoqueService.entradaEstoque(
-        produtoEstoque,
-        quantidadeRemovida,
-        custoUnitarioReversao,
-        "AJUSTE_ENTRADA", // Tipo de movimento para devolução/remoção
-        `Devolução de estoque por remoção do Item Venda #${id_venda_item} (Venda #${id_venda})`,
-        `DEV_VENDA_ITEM#${id_venda_item}`, // Referência
+      await this.reverterBaixaEstoque(
+        itemParaRemover,
+        id_venda,
         colaborador_id,
-        transaction
+        unidade_id,
+        transaction,
       );
-
-      // 4. Atualizar os totais da Venda (Comanda)
       const valorTotalAtual = new DecimalCtor(venda.valor_total);
       const custoTotalAtual = new DecimalCtor(venda.custo_total);
-
+      const valorRemovido = new DecimalCtor(itemParaRemover.preco_venda_total);
+      const custoRemovido = new DecimalCtor(itemParaRemover.custo_total);
       await venda.update(
         {
           valor_total: valorTotalAtual.minus(valorRemovido).toNumber(),
           custo_total: custoTotalAtual.minus(custoRemovido).toNumber(),
         },
-        { transaction }
+        { transaction },
       );
-
-      // 5. Deletar o Item da Venda
       await itemParaRemover.destroy({ transaction });
-
-      // 6. Commit
       await transaction.commit();
     } catch (error) {
-      // 1.D: Rollback em caso de erro
       await transaction.rollback();
       console.error(
         `❌ ERRO AO REMOVER ITEM DE VENDA ID ${id_venda_item}:`,
-        (error as Error).message
+        (error as Error).message,
       );
-      throw error; // Propaga o erro
+      throw error;
     }
   }
 }

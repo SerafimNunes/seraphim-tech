@@ -1,9 +1,7 @@
-// tsconfig.json (Recomendado)
 {
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "strict": true,
     "esModuleInterop": true,

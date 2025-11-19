@@ -1,0 +1,48 @@
+Regra,Escopo,Critério para Código
+R2,Fluxo de Estoque,"Validação de Saldo Negativo e uso de decrement em transações de baixa (VendaComandaService, ProducaoService)."
+R3,Cálculo de CMV,Uso do campo preco_custo_unitario (CMP) para calcular o custo da venda (VendaComandaService) ou produção.
+R4,Multi-Unidade,"O Controller injetar o unidade_id na chamada do Service, e o Service usar esse ID para filtrar/validar o acesso a dados (Caixa, Venda, Estoque)."
+R11,Planejamento,Lógica de Ponto de Pedido (ponto_pedido > saldo_atual) em PlanejamentoService.
+R12,RBAC,Aplicação de podeAcessar([RECURSO_ACAO]) nas rotas (\*Routes.ts).
+
+Módulo (Conceito),Diretório / Arquivos Principais,Regras de Ouro Focais
+Estoque,"models/ItemEstoque.ts, services/EstoqueItemService.ts","R2, R3, R4"
+Vendas (PDV),"controllers/VendaComandaController.ts, services/VendaComandaService.ts","R2, R3, R4, R12"
+Caixa / Financeiro,"controllers/CaixaController.ts, services/CaixaService.ts, models/Caixa.ts","R4, R12"
+Planejamento,"controllers/PlanejamentoController.ts, services/PlanejamentoService.ts","R4, R11, R12"
+Escalas / RH,"controllers/EscalaController.ts, services/EscalaService.ts","R4, R12"
+Autenticação,"Middlewares/authMiddleware.ts, Middlewares/rbacMiddleware.ts","R4, R12"
+Modelos de Dados,models/\*.ts,"R1, R4 (Verificar se todos os modelos críticos têm unidade_id)"
+
+Arquivo a Verificar,Regra,Critério de Implementação,Status
+
+models/ItemEstoque.ts,"R4, R3, R11","O modelo contém os campos unidade_id, saldo_atual, ponto_pedido e preco_custo_unitario?", feito
+
+models/Caixa.ts,R4,O modelo contém o campo unidade_id?,☐
+
+models/Usuario.ts,R4,O modelo contém o campo unidade_id?,☐
+
+services/UsuarioServices.ts,R4,O método getUnidadeIdByUsuarioId existe e retorna a unidade do usuário logado?,☐
+
+config/types.ts,R1,Os Enums para Acoes (LEITURA/ESCRITA/etc.) e Recursos (VENDAS/CAIXA/etc.) estão definidos para o RBAC?,☐
+
+Arquivo a Verificar,Regra,Critério de Implementação,Status
+controllers/VendaComandaController.ts,R4,"No método fecharComanda, a unidade_id é injetada a partir do usuário (req.user) e passada para o Service?",☐
+services/VendaComandaService.ts,R2,A função que dá baixa no estoque (fecharComanda ou similar) valida se o saldo_atual é maior ou igual à quantidade vendida?,☐
+services/VendaComandaService.ts,R3,O cálculo do CMV usa o campo preco_custo_unitario do ItemEstoque?,☐
+services/VendaComandaService.ts,R4,O Service utiliza a unidade_id para buscar os itens de estoque (se necessário) ou validar o item (se a baixa for transacional)?,☐
+routes/VendaComandaRoutes.ts,R12,A rota POST /itens e PUT /fechar aplicam o middleware podeAcessar([VENDAS_ESCRITA])?,☐
+
+Arquivo a Verificar,Regra,Critério de Implementação,Status
+controllers/CaixaController.ts,R4,"Nos métodos abrirCaixa, fecharCaixa e registrarLancamento, a unidade_id é injetada do usuário e passada para o Service?",☐
+services/CaixaService.ts,R4,O método fecharCaixa valida se o id_caixa pertence à unidade_id fornecida pelo Controller?,☐
+routes/CaixaRoutes.ts,R12,As rotas aplicam authMiddleware e podeAcessar (Ex: CAIXA_ESCRITA)?,☐
+
+Arquivo a Verificar,Regra,Critério de Implementação,Status
+services/PlanejamentoService.ts,"R4, R11",O método gerarListaNecessidade usa a unidade_id no where e a lógica de saldo_atual < ponto_pedido?,☐
+controllers/EscalaController.ts,R4,O Controller injeta a unidade_id na chamada do EscalaService?,☐
+routes/PlanejamentoRoutes.ts,R12,A rota GET /necessidades aplica podeAcessar([PLANEJAMENTO_LEITURA])?,☐
+
+Arquivo a Verificar,Regra,Critério de Implementação,Status
+Middlewares/rbacMiddleware.ts,R12,A função exportada é export const podeAcessar e ela recebe um array de permissões?,☐
+index.ts,R12,O authMiddleware está aplicado globalmente ou no início de todos os roteadores principais (.use(authMiddleware))?,☐

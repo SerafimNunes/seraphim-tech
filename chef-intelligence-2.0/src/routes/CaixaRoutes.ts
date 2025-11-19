@@ -1,13 +1,10 @@
-// src/routes/CaixaRoutes.ts
-
-import { Router } from "express";
-import CaixaController from "../controllers/CaixaController";
-// Nota: authMiddleware e rbacMiddleware seriam importados aqui,
-// e são aplicados no index.ts, garantindo R12.
+import { Router } from 'express';
+// 🔑 CORREÇÃO TS2613: Importar como named export e instanciar
+import { CaixaController } from '../controllers/CaixaController';
 
 const router = Router();
-// O CaixaController é exportado como uma instância default
-const Controller = CaixaController;
+// O Controller deve ser instanciado a partir da classe importada
+const Controller = new CaixaController();
 
 /**
  * Rota para Lançamentos (Sangria, Reforço, Despesa)
@@ -20,7 +17,7 @@ const Controller = CaixaController;
  * @access Private (Auth Required, Role: Gerente/Admin/Operador)
  */
 // 🔑 Adição da rota para lançamentos manuais
-router.post("/caixa/lancamento", Controller.registrarLancamento);
+router.post('/caixa/lancamento', Controller.registrarLancamento);
 
 // -------------------------------------------------------------
 // Rotas de Gestão de Estado (Caixa)
@@ -31,27 +28,27 @@ router.post("/caixa/lancamento", Controller.registrarLancamento);
  * @description Abre um novo caixa para o turno.
  * @access Private (Auth Required, Role: Gerente/Admin/Operador)
  */
-router.post("/caixa/abrir", Controller.abrirCaixa);
+router.post('/caixa/abrir', Controller.abrirCaixa);
 
 /**
  * @route PUT /caixa/fechar/:id_caixa
  * @description Fecha o caixa do turno, consolidando o saldo.
  * @access Private (Auth Required, Role: Gerente/Admin/Operador)
  */
-router.put("/caixa/fechar/:id_caixa", Controller.fecharCaixa);
+router.put('/caixa/fechar/:id_caixa', Controller.fecharCaixa);
 
 /**
  * @route GET /caixa/ativos
  * @description Lista todos os caixas que estão atualmente ABERTOS.
  * @access Private (Auth Required)
  */
-router.get("/caixa/ativos", Controller.listarCaixasAtivos);
+router.get('/caixa/ativos', Controller.listarCaixasAtivos);
 
 /**
  * @route GET /caixa/movimentos
  * @description Lista todos os movimentos (abertura, fechamento, suprimentos, sangrias).
  * @access Private (Auth Required)
  */
-router.get("/caixa/movimentos", Controller.listarMovimentos);
+router.get('/caixa/movimentos', Controller.listarMovimentos);
 
 export default router;

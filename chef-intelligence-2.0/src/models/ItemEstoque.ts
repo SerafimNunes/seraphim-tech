@@ -1,13 +1,11 @@
-import { DataTypes, Model, Optional, ModelCtor, Sequelize } from "sequelize";
-import { connection } from "../config/sequelize";
-import { IModelFactory } from "../config/types";
-import Unidade from "./Unidade";
+// src/models/ItemEstoque.ts
+import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory } from '../config/types';
 
-// R1. Interface para Atributos
 export interface ItemEstoqueAttributes {
   id_item: number;
   unidade_id: number;
-  id_produto: number; // Mapeia para id_item via getter/field
   nome: string;
   unidade_medida: string;
   estoque_atual: number;
@@ -16,100 +14,91 @@ export interface ItemEstoqueAttributes {
   preco_venda: number;
   is_vendavel: boolean;
   is_pre_pronto: boolean;
+  tipo_item: 'INGREDIENTE' | 'PRODUCAO' | 'PRODUTO_FINAL';
   createdAt?: Date;
   updatedAt?: Date;
-  saldo_atual: number; // Atributo virtual (R11)
-  pronto_pedido: number; // Atributo virtual (R11)
-  tipo_item: "INGREDIENTE" | "PRODUCAO" | "PRODUTO_FINAL";
 }
 
-// R2. Interface para Criação
 export interface ItemEstoqueCreationAttributes
   extends Optional<
     ItemEstoqueAttributes,
-    | "id_produto"
-    | "estoque_atual"
-    | "preco_custo_unitario"
-    | "createdAt"
-    | "updatedAt"
+    | 'id_item'
+    | 'estoque_atual'
+    | 'preco_custo_unitario'
+    | 'preco_venda'
+    | 'estoque_minimo'
   > {}
 
-// R3. Interface do Modelo
 export interface ItemEstoqueModel
   extends Model<ItemEstoqueAttributes, ItemEstoqueCreationAttributes>,
-    ItemEstoqueAttributes {}
+    ItemEstoqueAttributes {
+  // virtual getters
+  getSaldoAtual(): number;
+  getProntoPedido(): number;
+}
 
-// R4. Criação e Exportação do Modelo
 const ItemEstoque: ModelCtor<ItemEstoqueModel> =
   connection.define<ItemEstoqueModel>(
-    "ItemEstoque",
+    'ItemEstoque',
     {
-      // 1. CHAVE PRIMÁRIA (R4, R1): id_item da interface mapeado para id_produto do BD
       id_item: {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true,
-        field: "id_produto",
+        field: 'id_item',
       },
-
-      // 🔑 FIX CRÍTICO: id_produto definido como VIRTUAL para satisfazer o TS2345
-      id_produto: {
-        type: DataTypes.VIRTUAL,
-      },
-
-      // 2. R4 FIX: Campo unidade_id
       unidade_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        references: {
-          model: Unidade,
-          key: "id_unidade",
-        },
+        comment: 'ID da Unidade de negócio (Regra R4)',
+        references: { model: 'UNIDADES', key: 'id_unidade' },
       },
-
-      nome: {
-        type: DataTypes.STRING(100),
-        allowNull: false,
-        unique: true,
-      },
-      unidade_medida: {
-        type: DataTypes.STRING(10),
-        allowNull: false,
-      },
-
-      // 3. TIPO_ITEM FIX: Adicionado campo tipo_item
+      nome: { type: DataTypes.STRING(100), allowNull: false },
+      unidade_medida: { type: DataTypes.STRING(20), allowNull: false },
       tipo_item: {
-        type: DataTypes.ENUM("INGREDIENTE", "PRODUCAO", "PRODUTO_FINAL"),
+        type: DataTypes.ENUM('INGREDIENTE', 'PRODUCAO', 'PRODUTO_FINAL'),
         allowNull: false,
+        defaultValue: 'INGREDIENTE',
       },
-
-      // 🔑 R11 FIX: Campos Virtuais definidos como VIRTUAL para satisfazer o TS2345
-      saldo_atual: {
-        type: DataTypes.VIRTUAL,
-      },
-      pronto_pedido: {
-        type: DataTypes.VIRTUAL,
-      },
-
       estoque_atual: {
         type: DataTypes.DECIMAL(10, 3),
         allowNull: false,
         defaultValue: 0,
+        get() {
+          return parseFloat(
+            this.getDataValue('estoque_atual') as unknown as string,
+          );
+        },
       },
       estoque_minimo: {
         type: DataTypes.DECIMAL(10, 3),
         allowNull: false,
         defaultValue: 0,
+        get() {
+          return parseFloat(
+            this.getDataValue('estoque_minimo') as unknown as string,
+          );
+        },
       },
       preco_custo_unitario: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
         defaultValue: 0,
+        get() {
+          return parseFloat(
+            this.getDataValue('preco_custo_unitario') as unknown as string,
+          );
+        },
       },
       preco_venda: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
         defaultValue: 0,
+        get() {
+          return parseFloat(
+            this.getDataValue('preco_venda') as unknown as string,
+          );
+        },
       },
       is_vendavel: {
         type: DataTypes.BOOLEAN,
@@ -121,36 +110,62 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         allowNull: false,
         defaultValue: false,
       },
-    },
-    {
-      tableName: "PRODUTOS",
-      timestamps: true,
-      modelName: "ItemEstoque",
-      // Definição dos métodos de leitura dos campos virtuais
-      getterMethods: {
-        id_produto(): number {
-          return (this as any).getDataValue("id_item");
-        },
-        saldo_atual(): number {
-          return (this as any).getDataValue("estoque_atual");
-        },
-        pronto_pedido(): number {
-          const estoqueAtual = (this as any).getDataValue("estoque_atual") || 0;
-          const estoqueMinimo =
-            (this as any).getDataValue("estoque_minimo") || 0;
-          return estoqueAtual - estoqueMinimo;
+
+      // virtuals
+      saldo_atual: {
+        type: DataTypes.VIRTUAL,
+        get() {
+          return this.getDataValue('estoque_atual');
         },
       },
-    }
+      pronto_pedido: {
+        type: DataTypes.VIRTUAL,
+        get() {
+          const atual = this.getDataValue('estoque_atual') || 0;
+          const minimo = this.getDataValue('estoque_minimo') || 0;
+          return atual - minimo;
+        },
+      },
+    },
+    {
+      tableName: 'PRODUTOS',
+      timestamps: true,
+      modelName: 'ItemEstoque',
+    } as any,
   );
 
-// R5: Método estático para associações
 (ItemEstoque as any).associate = function (models: IModelFactory) {
-  ItemEstoque.belongsTo(models.Unidade, {
-    foreignKey: "unidade_id",
-    targetKey: "id_unidade",
-    as: "unidade",
-  });
+  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
+  const VendaItemModel = models.VendaItem as ModelCtor<any> | undefined;
+  const EstoqueRegistroModel = models.EstoqueRegistroMovimento as
+    | ModelCtor<any>
+    | undefined;
+  const FichaTecnicaModel = models.FichaTecnica as ModelCtor<any> | undefined;
+
+  if (UnidadeModel) {
+    ItemEstoque.belongsTo(UnidadeModel, {
+      foreignKey: 'unidade_id',
+      as: 'unidade',
+    });
+  }
+  if (VendaItemModel) {
+    ItemEstoque.hasMany(VendaItemModel, {
+      foreignKey: 'id_produto',
+      as: 'vendaItems',
+    });
+  }
+  if (EstoqueRegistroModel) {
+    ItemEstoque.hasMany(EstoqueRegistroModel, {
+      foreignKey: 'id_item',
+      as: 'movimentos',
+    });
+  }
+  if (FichaTecnicaModel) {
+    ItemEstoque.hasMany(FichaTecnicaModel, {
+      foreignKey: 'id_produto_pai',
+      as: 'fichaTecnica',
+    });
+  }
 };
 
 export default ItemEstoque;

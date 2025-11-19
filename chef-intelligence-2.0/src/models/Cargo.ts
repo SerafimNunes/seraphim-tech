@@ -1,17 +1,19 @@
+// src/models/Cargo.ts
 import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory } from "../config/types";
 import { Colaborador } from "./Colaborador";
-import Permissao from "./Permissao";
+import Permissao, { PermissaoModel } from "./Permissao";
 
+// 1. Interfaces e Tipagem (GPR-2)
 export interface CargoAttributes {
-  id_cargo: number;
+  id_cargo: number; // GPR-5: Padrão de chave Primária
+  unidade_id: number;
   nome_cargo: string;
   departamento: string;
   salario_base: number;
 }
 
-// ✅ CORREÇÃO TS2344: Tipagem correta de Optional
 export interface CargoCreationAttributes
   extends Optional<CargoAttributes, "id_cargo"> {}
 
@@ -19,10 +21,9 @@ export interface CargoCreationAttributes
 export interface CargoModel
   extends Model<CargoAttributes, CargoCreationAttributes>,
     CargoAttributes {
-  permissoes?: Permissao[]; // R12: Associação com Permissões (para busca do AuthService)
+  permissoes?: PermissaoModel[]; // Associação Many-to-Many
+  usuarios?: any[]; // Associações tipadas
 }
-
-// ✅ CORREÇÃO TS2314/TS2353: Uso correto de genéricos e ModelOptions no define
 const Cargo: ModelCtor<CargoModel> = connection.define<
   CargoModel,
   CargoCreationAttributes
@@ -31,41 +32,52 @@ const Cargo: ModelCtor<CargoModel> = connection.define<
   {
     id_cargo: {
       type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
+      primaryKey: true, // GPR-5: Definição de chave primária
+      autoIncrement: true, // GPR-5: Auto incremento
+    },
+    unidade_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      comment: "ID da unidade de Negócio",
     },
     nome_cargo: {
       type: DataTypes.STRING(100),
       allowNull: false,
     },
     departamento: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.STRING(100),
       allowNull: false,
     },
     salario_base: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
+      get() {
+        return parseFloat(
+          this.getDataValue("salario_base") as unknown as string
+        );
+      },
     },
-  }, // Correção do erro TS2353
+  },
   {
     tableName: "CARGOS",
-    sequelize: connection, // Propriedade necessária para o define da instância
     timestamps: true,
     modelName: "Cargo",
   } as ModelOptions<CargoModel>
 );
 
-// Associações (mantidas)
+// 3. Associação Explicita (GPR-3)
 (Cargo as any).associate = function (models: IModelFactory) {
   Cargo.hasMany(models.Colaborador as ModelCtor<Colaborador>, {
-    foreignKey: "cargo_Id",
-    as: "colaboradores",
-  }); // 🔑 CRÍTICO R12: Relacionamento N:M com Permissão
-  Cargo.belongsToMany(models.Permissao, {
-    through: "CargoPermissoes", // tabela pivô
     foreignKey: "cargo_id",
-    as: "permissoes", // 🔑 ALIAS CRÍTICO: usado para busca aninhada no AuthService
-  }); // 🔑 NOVO: Adiciona a associação com Usuario (HasMany)
+    as: "colaboradores",
+  });
+  // Relacionamento N:M com Permissão
+  Cargo.belongsToMany(models.Permissao, {
+    through: "CargoPermissoes", // Tabela de pivô
+    foreignKey: "cargo_id",
+    as: "permissoes", // ALIAS CRÍTICO: usado para busca aninhada no AuthService
+  });
+  // Associações com Usuário
   Cargo.hasMany(models.Usuario, {
     foreignKey: "cargo_id",
     as: "usuarios",

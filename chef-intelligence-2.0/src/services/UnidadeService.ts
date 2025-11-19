@@ -12,9 +12,14 @@ export class UnidadeService {
     nome_unidade: string;
     cnpj: string;
     endereco: string;
+    status_operacional?: "ATIVA" | "INATIVA" | "EM_REFORMA";
   }): Promise<UnidadeModel> {
     try {
-      const unidade = await Unidade.create(payload);
+      const data = {
+        ...payload,
+        status_operacional: payload.status_operacional || "ATIVA",
+      };
+      const unidade = await Unidade.create(data);
       return unidade;
     } catch (error) {
       throw new Error(`Falha ao criar Unidade: ${(error as Error).message}`);

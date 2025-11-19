@@ -1,82 +1,62 @@
-import { DataTypes, Model, Optional } from "sequelize";
-import { connection } from "../config/sequelize";
-// 🔑 R6: Importa modelos renomeados
-import VendaComanda from "./VendaComanda";
-// 🔑 Importa ItemEstoque (assumindo que existe)
-import ItemEstoque, { ItemEstoqueModel } from "./ItemEstoque";
+// src/models/VendaItem.ts
+import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory } from '../config/types';
 
-export type StatusItem = "ABERTO" | "PREPARANDO" | "ENTREGUE" | "CANCELADO";
+export type StatusItem = 'ABERTO' | 'PREPARANDO' | 'ENTREGUE' | 'CANCELADO';
 
 export interface VendaItemAttributes {
   id_item_venda: number;
-  id_venda: number; // Chave para VendaComanda
+  unidade_id: number;
+  id_venda: number;
   id_produto: number;
   quantidade: number;
   preco_unitario: number;
   preco_venda_total: number;
-  custo_total: number; // CMV do Item
+  custo_total: number;
   status_item: StatusItem;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface VendaItemCreationAttributes
   extends Optional<
     VendaItemAttributes,
-    "id_item_venda" | "preco_venda_total" | "custo_total" | "status_item"
+    'id_item_venda' | 'preco_venda_total' | 'custo_total' | 'status_item'
   > {}
 
-// 🔑 R6: Renomeado para VendaItem
-export class VendaItem
-  extends Model<VendaItemAttributes, VendaItemCreationAttributes>
-  implements VendaItemAttributes
-{
-  public id_item_venda!: number;
-  public id_venda!: number;
-  public id_produto!: number;
-  public quantidade!: number;
-  public preco_unitario!: number;
-  public preco_venda_total!: number;
-  public custo_total!: number;
-  public status_item!: StatusItem;
+export interface VendaItemModel
+  extends Model<VendaItemAttributes, VendaItemCreationAttributes>,
+    VendaItemAttributes {}
 
-  public readonly produto?: ItemEstoqueModel;
-  public readonly venda?: VendaComanda; // 🔑 R6: Atualiza a tipagem de associação // timestamps
-
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
-}
-
-VendaItem.init(
+const VendaItem: ModelCtor<VendaItemModel> = connection.define<VendaItemModel>(
+  'VendaItem',
   {
     id_item_venda: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
     },
-    id_venda: {
+    unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: { model: "VENDAS", key: "id_venda" },
+      comment: 'ID da Unidade de negócio (Regra R4)',
     },
-    id_produto: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: { model: "PRODUTOS", key: "id_produto" },
-    },
+    id_venda: { type: DataTypes.INTEGER, allowNull: false },
+    id_produto: { type: DataTypes.INTEGER, allowNull: false },
     quantidade: {
       type: DataTypes.DECIMAL(10, 3),
       allowNull: false,
-      // 🔑 R1: Getter para número
       get() {
-        return parseFloat(this.getDataValue("quantidade") as unknown as string);
+        return parseFloat(this.getDataValue('quantidade') as unknown as string);
       },
     },
     preco_unitario: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
-      // 🔑 R1: Getter para número
       get() {
         return parseFloat(
-          this.getDataValue("preco_unitario") as unknown as string
+          this.getDataValue('preco_unitario') as unknown as string,
         );
       },
     },
@@ -84,10 +64,9 @@ VendaItem.init(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       defaultValue: 0.0,
-      // 🔑 R1: Getter para número
       get() {
         return parseFloat(
-          this.getDataValue("preco_venda_total") as unknown as string
+          this.getDataValue('preco_venda_total') as unknown as string,
         );
       },
     },
@@ -95,36 +74,63 @@ VendaItem.init(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       defaultValue: 0.0,
-      // 🔑 R1: Getter para número
       get() {
         return parseFloat(
-          this.getDataValue("custo_total") as unknown as string
+          this.getDataValue('custo_total') as unknown as string,
         );
       },
     },
     status_item: {
-      type: DataTypes.STRING(20),
+      type: DataTypes.ENUM('ABERTO', 'PREPARANDO', 'ENTREGUE', 'CANCELADO'),
       allowNull: false,
-      defaultValue: "ABERTO",
+      defaultValue: 'ABERTO',
     },
   },
   {
-    tableName: "ITENS_VENDA",
+    tableName: 'ITENS_VENDA',
     sequelize: connection,
     timestamps: true,
-    modelName: "VendaItem", // R6
-  }
+    modelName: 'VendaItem',
+  } as any,
 );
 
-(VendaItem as any).associate = function (models: any) {
-  VendaItem.belongsTo(VendaComanda, {
-    foreignKey: "id_venda",
-    as: "venda",
-  });
-  VendaItem.belongsTo(ItemEstoque, {
-    foreignKey: "id_produto",
-    as: "produto",
-  });
+(VendaItem as any).associate = function (models: IModelFactory) {
+  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
+  const VendaComandaModel = models.VendaComanda as ModelCtor<any> | undefined;
+  const ItemEstoqueModel = models.ItemEstoque as ModelCtor<any> | undefined;
+  const VendaImpostoModel = models.VendaImposto as ModelCtor<any> | undefined;
+  const VendaComissaoModel = models.VendaComissao as ModelCtor<any> | undefined;
+
+  if (UnidadeModel) {
+    VendaItem.belongsTo(UnidadeModel, {
+      foreignKey: 'unidade_id',
+      as: 'unidade',
+    });
+  }
+  if (VendaComandaModel) {
+    VendaItem.belongsTo(VendaComandaModel, {
+      foreignKey: 'id_venda',
+      as: 'vendaComanda',
+    });
+  }
+  if (ItemEstoqueModel) {
+    VendaItem.belongsTo(ItemEstoqueModel, {
+      foreignKey: 'id_produto',
+      as: 'itemEstoque',
+    });
+  }
+  if (VendaImpostoModel) {
+    VendaItem.hasMany(VendaImpostoModel, {
+      foreignKey: 'id_venda_item',
+      as: 'impostos',
+    });
+  }
+  if (VendaComissaoModel) {
+    VendaItem.hasMany(VendaComissaoModel, {
+      foreignKey: 'id_venda_item',
+      as: 'comissoes',
+    });
+  }
 };
 
 export default VendaItem;
