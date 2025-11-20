@@ -1,10 +1,11 @@
-// src/index.ts
+// src/index.ts (trecho principal)
 import express, { Request, Response } from 'express';
 import { connection } from './config/sequelize';
-import { applyAssociations } from './config/associations';
-import { IModelFactory } from './config/types';
-
-/* imports dos models — conforme estrutura do seu projeto */
+import { EscalaController } from './controllers/EscalaController';
+import { EscalaRoutes } from './routes/EscalaRoutes';
+import { UsuarioService } from './services/UsuarioServices';
+import { EscalaService } from './services/EscalaService';
+import { RHService } from './services/RHService';
 import Colaborador from './models/Colaborador';
 import Cargo from './models/Cargo';
 import Permissao from './models/Permissao';
@@ -25,8 +26,10 @@ import ComprasItemPedido from './models/ComprasItemPedido';
 import ProducaoRegistro from './models/ProducaoRegistro';
 import ProducaoRequisicaoInsumo from './models/ProducaoRequisicaoInsumo';
 import ProducaoRegistroPerda from './models/ProducaoRegistroPerda';
+import { IModelFactory } from './config/types';
+import { applyAssociations } from './config/associations';
 
-const models = {
+const models: IModelFactory = {
   Colaborador,
   Cargo,
   Permissao,
@@ -47,23 +50,45 @@ const models = {
   ProducaoRegistro,
   ProducaoRequisicaoInsumo,
   ProducaoRegistroPerda,
-} as unknown as IModelFactory;
+  Unidade: require('./models/Unidade').default,
+};
+
+applyAssociations(models);
+
+function initializeServices() {
+  const rhService = new RHService(models);
+  const usuarioService = new UsuarioService();
+  const escalaService = new EscalaService();
+  escalaService.setRHService(rhService);
+
+  const escalaController = new EscalaController(
+    escalaService,
+    usuarioService,
+    rhService,
+  );
+  return { escalaController };
+}
 
 async function startServer() {
   const app = express();
   const port = process.env.PORT || 3000;
+
   app.use(express.json());
-  applyAssociations(models);
+  const { escalaController } = initializeServices();
+
+  app.get('/', (req: Request, res: Response) => {
+    res.send('API Chef Intelligence 2.0 Rodando!');
+  });
+
+  app.use('/api/escala', new EscalaRoutes(escalaController).router);
+
   try {
     await connection.authenticate();
-    console.log('Conexão com o banco estabelecida com sucesso.');
-    app.get('/', (_req: Request, res: Response) =>
-      res.send('API Chef Intelligence 2.0 Rodando!'),
-    );
+    console.log('Conexão com o banco de dados estabelecida com sucesso.');
     app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
-  } catch (err) {
-    console.error('Erro ao conectar com o banco:', (err as Error).message);
-    process.exit(1);
+  } catch (error) {
+    console.error('Não foi possível conectar ao banco de dados:', error);
   }
 }
+
 startServer();

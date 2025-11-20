@@ -1,76 +1,82 @@
-import { DataTypes, Model, ModelCtor } from "sequelize";
-import { connection } from "../config/sequelize";
-import { IModelFactory } from "../config/types";
-import { CargoModel } from "./Cargo"; // Importa o tipo do Cargo
-import Cargo from "./Cargo"; // Importa o modelo Cargo para a associação
+// src/models/Usuario.ts
+import { DataTypes, Model, Optional } from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory } from '../config/types';
+import { CargoModel } from './Cargo';
 
-// Interface para os atributos de Usuário
-interface UsuarioAttributes {
-  id_usuario: number; // Renomeado para seguir o padrão
-  email: string;
-  senha_hash: string; // Adicionado para ser usado pelo AuthService.login
-  cargo_id: number; // 🔑 CHAVE CRÍTICA ADICIONADA para o relacionamento com Cargo
-  unidade_id: number; // Campo crucial para o R4 (Multi-Unidade) // ... outros campos (nome, etc.)
+export interface UsuarioAttributes {
+  id_usuario: number;
+  unidade_id: number;
+  colaborador_id: number;
+  email: string; // Changed from username to email
+  password_hash: string;
+  ativo: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-/**
- * Modelo Sequelize para a tabela 'usuarios'.
- * Implementa o relacionamento com Cargo (e indiretamente Permissões) para o RBAC.
- */
-export default class Usuario
-  extends Model<UsuarioAttributes>
-  implements UsuarioAttributes
-{
-  public id_usuario!: number;
-  public email!: string;
-  public senha_hash!: string;
-  public cargo_id!: number;
-  public unidade_id!: number; // Associações carregadas
+export interface UsuarioCreationAttributes
+  extends Optional<UsuarioAttributes, 'id_usuario' | 'ativo'> {}
 
-  public cargo?: CargoModel; // R12: Permite carregar o objeto Cargo // Associações (CRÍTICO para o AuthService)
-
-  public static associate(models: IModelFactory) {
-    Usuario.belongsTo(models.Cargo as ModelCtor<CargoModel>, {
-      foreignKey: "cargo_id",
-      as: "cargo", // 🔑 ALIAS CRÍTICO: Deve ser 'cargo' para o AuthService
-    });
-  }
+export interface UsuarioModel
+  extends Model<UsuarioAttributes, UsuarioCreationAttributes>,
+    UsuarioAttributes {
+  cargo?: CargoModel;
 }
 
-// Inicialização do Modelo
-Usuario.init(
+const Usuario = connection.define<UsuarioModel>(
+  'Usuario',
   {
     id_usuario: {
-      type: DataTypes.INTEGER, // Ajustado de UNSIGNED
-      autoIncrement: true,
+      type: DataTypes.INTEGER,
       primaryKey: true,
+      autoIncrement: true,
     },
-    email: {
-      type: DataTypes.STRING,
+    unidade_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    colaborador_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    email: { // Changed from username to email
+      type: DataTypes.STRING(80),
       allowNull: false,
       unique: true,
     },
-    senha_hash: {
-      type: DataTypes.STRING,
+    password_hash: {
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
-    cargo_id: {
-      type: DataTypes.INTEGER,
+    ativo: {
+      type: DataTypes.BOOLEAN,
       allowNull: false,
-      references: {
-        model: "CARGOS", // Nome da tabela
-        key: "id_cargo",
-      },
-    },
-    unidade_id: {
-      type: DataTypes.INTEGER, // Ajustado de UNSIGNED
-      allowNull: false,
+      defaultValue: true,
     },
   },
   {
-    tableName: "USUARIOS", // Nome da tabela
+    tableName: 'USUARIOS',
     sequelize: connection,
     timestamps: true,
-    modelName: "Usuario",
-  }
+    modelName: 'Usuario',
+  } as any,
 );
+
+(Usuario as any).associate = (models: IModelFactory) => {
+  if (!models) return;
+  if (models.Colaborador) {
+    Usuario.belongsTo(models.Colaborador as any, {
+      foreignKey: 'colaborador_id',
+      as: 'colaborador',
+    });
+  }
+  if (models.Unidade) {
+    Usuario.belongsTo(models.Unidade as any, {
+      foreignKey: 'unidade_id',
+      as: 'unidade',
+    });
+  }
+};
+
+export default Usuario;

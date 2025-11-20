@@ -1,7 +1,7 @@
 // src/services/PlanejamentoService.ts
 import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque";
 import { connection } from "../config/sequelize";
-import { Op } from "sequelize";
+import { Op, literal } from "sequelize";
 
 /**
  * Interface para o DTO (Data Transfer Object) de Necessidade de Reposição.
@@ -43,7 +43,10 @@ export class PlanejamentoService {
         where: {
           unidade_id: filter.unidade_id,
           // 🛑 CORRIGIDO: Usa 'pronto_pedido' na cláusula WHERE
-          pronto_pedido: { [Op.gt]: 0 }, // Deve ter um ponto de pedido maior que zero
+          [Op.and]: [
+            { estoque_atual: { [Op.gt]: literal('estoque_minimo') } },
+            { estoque_minimo: { [Op.gt]: 0 } } // Only consider items with a defined minimum stock
+          ],
         },
       });
 
@@ -52,9 +55,9 @@ export class PlanejamentoService {
       // 2. Aplicar a lógica do Ponto de Pedido (PP)
       for (const item of itens) {
         // 🛑 CORRIGIDO: Usa 'pronto_pedido' na lógica de comparação
-        if (item.saldo_atual < item.pronto_pedido) {
+        if (item.getSaldoAtual() < item.getProntoPedido()) {
           // 🛑 CORRIGIDO: Usa 'pronto_pedido' no cálculo da necessidade
-          const necessidade = item.pronto_pedido - item.saldo_atual;
+          const necessidade = item.getProntoPedido() - item.getSaldoAtual();
 
           // Determina se a reposição deve ser por COMPRA (Ingrediente) ou PRODUCAO (Pré-Pronto/Final)
           const tipoMovimentacao =
@@ -64,9 +67,9 @@ export class PlanejamentoService {
             id_item: item.id_item,
             nome: item.nome,
             unidade_medida: item.unidade_medida,
-            estoque_atual: item.saldo_atual,
+            estoque_atual: item.getSaldoAtual(),
             // 🛑 CORRIGIDO: Popula o DTO com 'pronto_pedido'
-            pronto_pedido: item.pronto_pedido,
+            pronto_pedido: item.getProntoPedido(),
             necessidade: necessidade,
             tipo_movimentacao: tipoMovimentacao,
           });

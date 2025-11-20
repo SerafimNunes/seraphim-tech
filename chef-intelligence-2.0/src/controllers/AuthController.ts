@@ -38,7 +38,7 @@ class AuthController {
         usuario: {
           id_usuario: usuario.id_usuario,
           email: usuario.email,
-          cargo_id: usuario.cargo_id,
+          cargo_id: usuario.cargo?.id_cargo,
           unidade_id: usuario.unidade_id, // O objeto 'cargo' foi incluído pelo Sequelize no Service
           nome_cargo: (usuario as any).cargo.nome_cargo,
         },

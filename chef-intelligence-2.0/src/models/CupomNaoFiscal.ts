@@ -1,6 +1,7 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '@config/types';
+import { ResolvedModelMap } from '../config/associations';
 
 // GPR-2: Tipagem Rígida e Completa - Attributes
 export interface CupomNaoFiscalAttributes {
@@ -83,7 +84,7 @@ CupomNaoFiscal.init(
 );
 
 // GPR-3: Associação Explícita (IModelFactory)
-(CupomNaoFiscal as any).associate = function (models: IModelFactory) {
+(CupomNaoFiscal as any).associate = function (models: ResolvedModelMap) {
   // GPR-1: Associação obrigatória à Unidade
   CupomNaoFiscal.belongsTo(models.Unidade, {
     foreignKey: 'unidade_id',

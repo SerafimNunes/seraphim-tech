@@ -2,6 +2,7 @@ import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
 import Unidade from './Unidade'; // 🔑 Importa Unidade para associação (R4)
 import { IModelFactory } from '../config/types'; // Importa a interface de factory
+import { ResolvedModelMap } from '../config/associations';
 
 // Tipos de Movimento (União de strings literais)
 export type TipoMovimentoEstoque =
@@ -136,7 +137,7 @@ EstoqueRegistroMovimento.init(
 );
 
 // Associações
-(EstoqueRegistroMovimento as any).associate = function (models: IModelFactory) {
+(EstoqueRegistroMovimento as any).associate = function (models: ResolvedModelMap) {
   // 🔑 R4: Associação com a Unidade
   EstoqueRegistroMovimento.belongsTo(models.Unidade, {
     foreignKey: 'unidade_id',

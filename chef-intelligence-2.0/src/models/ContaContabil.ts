@@ -1,6 +1,7 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '@config/types';
+import { ResolvedModelMap } from '../config/associations';
 
 export type TipoConta =
   | 'RECEITA'
@@ -100,7 +101,7 @@ ContaContabil.init(
 );
 
 // GPR-3: Associação Explícita (Hierarquia)
-(ContaContabil as any).associate = function (models: IModelFactory) {
+(ContaContabil as any).associate = function (models: ResolvedModelMap) {
   // Auto-associação para criar a hierarquia Pai/Filho
   ContaContabil.belongsTo(models.ContaContabil, {
     as: 'contaPai',

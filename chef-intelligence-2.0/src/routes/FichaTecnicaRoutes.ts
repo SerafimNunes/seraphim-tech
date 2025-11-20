@@ -10,7 +10,7 @@ const router = Router();
 const FT_READ =
   Recursos.PRODUCAO.toUpperCase() + "_" + Acoes.LEITURA.toUpperCase();
 const FT_WRITE =
-  Recursos.PRODUCAO.toUpperCase() + "_" + Acoes.ATUALIZACAO.toUpperCase();
+  Recursos.PRODUCAO.toUpperCase() + "_" + Acoes.ATUALIZAR.toUpperCase();
 
 // 🔑 1.G: Aplica autenticação a todas as rotas
 router.use(authMiddleware);

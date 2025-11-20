@@ -1,6 +1,7 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '@config/types';
+import { ResolvedModelMap } from '../config/associations';
 import ContaContabil from './ContaContabil';
 
 export type TipoLancamentoContabil = 'DEBITO' | 'CREDITO';
@@ -106,7 +107,7 @@ DocumentoContabil.init(
 );
 
 // GPR-3: Associação Explícita
-(DocumentoContabil as any).associate = function (models: IModelFactory) {
+(DocumentoContabil as any).associate = function (models: ResolvedModelMap) {
   // GPR-1: Associação obrigatória à Unidade
   DocumentoContabil.belongsTo(models.Unidade, {
     foreignKey: 'unidade_id',

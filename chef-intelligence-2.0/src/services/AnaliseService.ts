@@ -13,7 +13,7 @@ import VendaItem, { VendaItemModel } from '../models/VendaItem';
 // Modelos de Despesas Variáveis e Fixas (Base para R3 e R10)
 import VendaImposto, { VendaImpostoModel } from '../models/VendaImposto';
 import VendaComissao, { VendaComissaoModel } from '../models/VendaComissao';
-import CustoFixo, { CustoFixoModel } from '../models/CustoFixo';
+import CustoFixo from '../models/CustoFixo';
 
 // Importação de Modelos de Compras/Estoque (Base para CMV por Perda/Produção - R8)
 import ComprasItemPedido from '../models/ComprasItemPedido';
@@ -47,7 +47,7 @@ export class AnaliseService implements IAnaliseService {
   private ItemEstoque: ModelCtor<ItemEstoqueModel>;
   private VendaImposto: ModelCtor<VendaImpostoModel>;
   private VendaComissao: ModelCtor<VendaComissaoModel>;
-  private CustoFixo: ModelCtor<CustoFixoModel>;
+  private CustoFixo: typeof CustoFixo;
   private ProducaoRegistroPerda: ModelCtor<ProducaoRegistroPerdaModel>;
   private ProducaoRegistro: ModelCtor<ProducaoRegistroModel>;
 
@@ -162,7 +162,9 @@ export class AnaliseService implements IAnaliseService {
         attributes: [[fn('SUM', col('valor_imposto')), 'total_impostos']],
         where: {
           unidade_id: unidade_id, // 🔑 R4 - Filtragem crítica
-          createdAt: { [Op.between]: [data_inicio, data_fim] },
+          createdAt: {
+            [Op.between]: [data_inicio, data_fim],
+          },
         },
         raw: true,
       });
@@ -173,7 +175,9 @@ export class AnaliseService implements IAnaliseService {
         attributes: [[fn('SUM', col('valor_comissao')), 'total_comissoes']],
         where: {
           unidade_id: unidade_id, // 🔑 R4 - Filtragem crítica
-          createdAt: { [Op.between]: [data_inicio, data_fim] },
+          createdAt: {
+            [Op.between]: [data_inicio, data_fim],
+          },
         },
         raw: true,
       });

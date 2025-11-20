@@ -1,5 +1,5 @@
 // src/models/VendaComanda.ts
-import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '../config/types';
 
@@ -57,11 +57,6 @@ export class VendaComanda
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
-
-  public readonly itens?: any[];
-  public readonly mesa?: any;
-  public readonly unidade?: any;
-  public readonly caixa?: any;
 }
 
 VendaComanda.init(
@@ -71,17 +66,16 @@ VendaComanda.init(
       primaryKey: true,
       autoIncrement: true,
     },
-    id_mesa: { type: DataTypes.INTEGER, allowNull: true },
+    id_mesa: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: 'MESAS', key: 'id_mesa' },
+    },
     id_caixa: { type: DataTypes.INTEGER, allowNull: true },
     colaborador_id_abertura: { type: DataTypes.INTEGER, allowNull: false },
     colaborador_id_fechamento: { type: DataTypes.INTEGER, allowNull: true },
     status_venda: {
-      type: DataTypes.ENUM(
-        'ABERTA',
-        'FECHADA',
-        'CANCELADA',
-        'AGUARDANDO_PAGAMENTO',
-      ),
+      type: DataTypes.STRING(30),
       allowNull: false,
       defaultValue: 'ABERTA',
     },
@@ -96,9 +90,10 @@ VendaComanda.init(
       allowNull: false,
       defaultValue: 0.0,
       get() {
-        return parseFloat(
-          this.getDataValue('valor_total') as unknown as string,
-        );
+        const v = this.getDataValue('valor_total') as unknown as
+          | string
+          | number;
+        return v === null || v === undefined ? 0 : parseFloat(String(v));
       },
     },
     custo_total: {
@@ -106,9 +101,10 @@ VendaComanda.init(
       allowNull: false,
       defaultValue: 0.0,
       get() {
-        return parseFloat(
-          this.getDataValue('custo_total') as unknown as string,
-        );
+        const v = this.getDataValue('custo_total') as unknown as
+          | string
+          | number;
+        return v === null || v === undefined ? 0 : parseFloat(String(v));
       },
     },
     metodo_pagamento: { type: DataTypes.STRING(50), allowNull: true },
@@ -116,43 +112,35 @@ VendaComanda.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       comment: 'ID da Unidade de negócio (Regra R4)',
-      references: { model: 'UNIDADES', key: 'id_unidade' },
+      references: { model: 'Unidades', key: 'id_unidade' },
     },
   },
   {
     tableName: 'VENDAS',
-    sequelize: connection,
     timestamps: true,
     modelName: 'VendaComanda',
   } as any,
 );
 
 (VendaComanda as any).associate = function (models: IModelFactory) {
-  const VendaItemModel = models.VendaItem as ModelCtor<any> | undefined;
-  const VendaMesaModel = models.VendaMesa as ModelCtor<any> | undefined;
-  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
-  const CaixaModel = models.Caixa as ModelCtor<any> | undefined;
-
-  if (VendaItemModel) {
-    VendaComanda.hasMany(VendaItemModel, {
+  if (!models) return;
+  if (models.VendaItem) {
+    VendaComanda.hasMany(models.VendaItem as any, {
       foreignKey: 'id_venda',
       as: 'itens',
     });
   }
-  if (VendaMesaModel) {
-    VendaComanda.belongsTo(VendaMesaModel, {
+  if (models.VendaMesa) {
+    VendaComanda.belongsTo(models.VendaMesa as any, {
       foreignKey: 'id_mesa',
       as: 'mesa',
     });
   }
-  if (UnidadeModel) {
-    VendaComanda.belongsTo(UnidadeModel, {
+  if (models.Unidade) {
+    VendaComanda.belongsTo(models.Unidade as any, {
       foreignKey: 'unidade_id',
       as: 'unidade',
     });
-  }
-  if (CaixaModel) {
-    VendaComanda.belongsTo(CaixaModel, { foreignKey: 'id_caixa', as: 'caixa' });
   }
 };
 

@@ -1,137 +1,173 @@
 // src/config/types.ts
-import { ModelCtor, Transaction, Model } from 'sequelize';
-import { JwtPayload } from 'jsonwebtoken';
+import { ModelCtor, Transaction } from 'sequelize';
+import Unidade from '../models/Unidade';
+import Colaborador from '../models/Colaborador';
+import Fornecedor from '../models/Fornecedor';
 
-/* (conteúdo exatamente como no patch acima) */
+/* ============================================================================
+   ENUMS E TIPOS BÁSICOS
+============================================================================ */
 
-export enum Acoes {
-  LER = 'LER',
-  CRIAR = 'CRIAR',
-  ATUALIZAR = 'ATUALIZAR',
-  DELETAR = 'DELETAR',
-}
-export enum Recursos {
-  FICHA_TECNICA = 'FICHA_TECNICA',
-  PLANEJAMENTO = 'PLANEJAMENTO',
-  PRODUCAO = 'PRODUCAO',
-  ESCALA = 'ESCALA',
-}
-export enum NivelAcesso {
-  ADMIN = 'ADMIN',
-  USER = 'USER',
-}
 export enum StatusColaborador {
   ATIVO = 'ATIVO',
   INATIVO = 'INATIVO',
-  DESLIGADO = 'DESLIGADO',
+  FERIAS = 'FERIAS',
+  AFASTADO = 'AFASTADO',
 }
-export interface IPerfilIdeal {
-  cargo_id?: number;
-  competencias?: string[];
+
+export enum NivelAcesso {
+  ADMIN = 'ADMIN',
+  GERENTE = 'GERENTE',
+  COORDENADOR = 'COORDENADOR',
+  OPERACIONAL = 'OPERACIONAL',
 }
-export interface IHistoricoPerformance {
-  colaborador_id?: number;
-  ano?: number;
-  nota?: number;
-}
-export interface IRegraColaborador {
-  regra?: string;
-}
-export interface IColaboradorBase {
-  id_colaborador?: number;
-  nome?: string;
-}
+
+/* ============================================================================
+   STATUS DE DOMÍNIO
+============================================================================ */
+
 export type StatusQualidade =
   | 'PENDENTE'
   | 'APROVADO'
   | 'REPROVADO'
   | 'DEVOLVIDO';
+
 export type StatusAprovacaoCompras =
   | 'SUGERIDO'
   | 'AGUARDANDO_APROVACAO'
   | 'APROVADO'
   | 'REPROVADO'
   | 'CANCELADO'
+  | 'EM_COTACAO'
   | 'FINALIZADO';
+
 export type StatusProducao =
   | 'SUGERIDO'
   | 'APROVADO'
   | 'EM_PRODUCAO'
   | 'CONCLUIDO'
   | 'CANCELADO';
+
 export type StatusRequisicao =
   | 'SOLICITADA'
   | 'EM_SEPARACAO'
   | 'ENTREGUE'
   | 'RECUSADA'
   | 'CANCELADA';
+
 export type TipoPerda =
   | 'QUEBRA'
   | 'VALIDADE'
   | 'ERRO_PRODUCAO'
   | 'ERRO_VENDA'
   | 'OUTROS';
-export type StatusMesa =
-  | 'LIVRE'
-  | 'OCUPADA'
-  | 'AGUARDANDO_FECHAMENTO'
-  | 'MANUTENCAO';
-export type StatusComanda =
-  | 'ABERTA'
-  | 'FECHADA'
-  | 'CANCELADA'
-  | 'AGUARDANDO_PAGAMENTO';
-export type StatusItem = 'ABERTO' | 'PREPARANDO' | 'ENTREGUE' | 'CANCELADO';
+
+/* ============================================================================
+   RBAC (Recursos e Ações)
+============================================================================ */
+
+export enum Recursos {
+  PRODUCAO = 'PRODUCAO',
+  PLANEJAMENTO = 'PLANEJAMENTO',
+  RH = 'RH',
+}
+
+export enum Acoes {
+  LEITURA = 'LEITURA',
+  CRIAR = 'CRIAR',
+  ATUALIZAR = 'ATUALIZAR', // Corrige erro de "ATUALIZACAO"
+  EXCLUIR = 'EXCLUIR',
+}
+
+/* ============================================================================
+   RH — Tipos necessários para os Controllers e Services
+============================================================================ */
+
+export interface IColaboradorBase {
+  id_colaborador: number;
+  nome: string;
+  cargo_id: number;
+  nivel_acesso: NivelAcesso;
+  status: StatusColaborador;
+}
+
+export interface IPerfilIdeal {
+  cargo_id: number;
+  competencia_id: number;
+  nivel_esperado?: number;
+}
+
+export interface IHistoricoPerformance {
+  colaborador_id: number;
+  erros_registrados: number;
+  desperdicio_total: number;
+  observacao?: string;
+}
+
+export interface IRegraColaborador {
+  cargo_id: number;
+  carga_horaria_min: number;
+  carga_horaria_max: number;
+}
+
+/* ============================================================================
+   KPI / Dashboard
+============================================================================ */
+
 export interface KPIFilter {
   unidade_id: number;
   data_inicio: Date;
   data_fim: Date;
   transaction?: Transaction;
 }
+
 export interface DashboardKPIs {
-  receita_liquida: number;
-  receita_total?: number;
-  cmv_real_time: number;
-  margem_bruta: number;
+  receita_total: number;
+  custo_mercadoria_vendida: number;
+
+  // Opcional porque seu service ainda não calcula
+  receita_liquida?: number;
+  cmv_real_time?: number;
+  margem_bruta?: number;
+  ticket_medio?: number;
+  mcmp?: number;
+
   despesas_variaveis: number;
+
+  margem_contribuicao_valor?: number;
+  margem_contribuicao_percentual?: number;
+
+  custo_fixo_total: number;
   lucro_operacional: number;
-  ticket_medio: number;
-  mcmp: number;
-  custo_mercadoria_vendida?: number;
+  ponto_equilibrio_receita: number;
+
+  tendencia_receita: any[];
+  tendencia_cmv: any[];
 }
-export interface ProducaoKPIs {
-  registros_concluidos: number;
-  custo_total_producao: number;
-  custo_total_perdas: number;
-  eficiencia_producao: number;
-}
-export interface IModelFactoryNamed {
-  ItemEstoque?: ModelCtor<Model<any, any>>;
-  VendaComanda?: ModelCtor<Model<any, any>>;
-  VendaItem?: ModelCtor<Model<any, any>>;
-  VendaMesa?: ModelCtor<Model<any, any>>;
-  VendaImposto?: ModelCtor<Model<any, any>>;
-  VendaComissao?: ModelCtor<Model<any, any>>;
-  ProducaoRegistro?: ModelCtor<Model<any, any>>;
-  ProducaoRequisicaoInsumo?: ModelCtor<Model<any, any>>;
-  ProducaoRegistroPerda?: ModelCtor<Model<any, any>>;
-  ComprasPedido?: ModelCtor<Model<any, any>>;
-  ComprasItemPedido?: ModelCtor<Model<any, any>>;
-  Unidade?: ModelCtor<Model<any, any>>;
-  Colaborador?: ModelCtor<Model<any, any>>;
-  Fornecedor?: ModelCtor<Model<any, any>>;
-  Caixa?: ModelCtor<Model<any, any>>;
-  ContaContabil?: ModelCtor<Model<any, any>>;
-  Lancamento?: ModelCtor<Model<any, any>>;
-  DocumentoContabil?: ModelCtor<Model<any, any>>;
-}
-export interface IModelFactory extends IModelFactoryNamed {
-  [name: string]: ModelCtor<Model<any, any>> | undefined;
-}
-export interface JwtUsuario extends JwtPayload {
-  id_usuario: number;
-  unidade_id: number;
-  id_cargo?: number;
-  nome_cargo?: string;
-  permissoes?: string[];
+
+/* ============================================================================
+   FÁBRICA DE MODELOS
+============================================================================ */
+
+export interface IModelFactory {
+  [key: string]:
+    | ModelCtor<any>
+    | typeof Unidade
+    | typeof Colaborador
+    | typeof Fornecedor
+    | undefined;
+
+  Unidade?: typeof Unidade;
+  Colaborador?: typeof Colaborador;
+  Fornecedor?: typeof Fornecedor;
+
+  ItemEstoque?: ModelCtor<any>;
+  VendaComanda?: ModelCtor<any>;
+  VendaMesa?: ModelCtor<any>;
+  VendaItem?: ModelCtor<any>;
+  ProducaoRegistro?: ModelCtor<any>;
+  ProducaoRequisicaoInsumo?: ModelCtor<any>;
+  ProducaoRegistroPerda?: ModelCtor<any>;
+  ComprasPedido?: ModelCtor<any>;
+  ComprasItemPedido?: ModelCtor<any>;
 }

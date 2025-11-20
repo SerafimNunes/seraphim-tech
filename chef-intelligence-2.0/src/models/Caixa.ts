@@ -1,13 +1,14 @@
+//src\models\Caixa.ts
+////////////////////////////////////////////////////////
+
 import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types'; // Importando para associação
 
 export type StatusCaixa = 'ABERTO' | 'FECHADO';
 
 export interface CaixaAttributes {
   id_caixa: number;
-  // GPR-1: Adicionando o campo de segurança R4
-  unidade_id: number;
+  unidade_id: number; // GPR-1: Adicionando o campo de segurança R4
   colaborador_id_abertura: number;
   colaborador_id_fechamento: number | null;
   data_abertura: Date;
@@ -37,7 +38,7 @@ export class Caixa
   implements CaixaAttributes
 {
   public id_caixa!: number;
-  public unidade_id!: number; // GPR-1: Adicionando à instância
+  public unidade_id!: number;
   public colaborador_id_abertura!: number;
   public colaborador_id_fechamento!: number | null;
   public data_abertura!: Date;
@@ -128,17 +129,8 @@ Caixa.init(
   },
 );
 
-// GPR-3: Associação Explícita
-(Caixa as any).associate = function (models: IModelFactory) {
-  // GPR-1: Associação obrigatória à Unidade
-  Caixa.belongsTo(models.Unidade, {
-    foreignKey: 'unidade_id',
-    as: 'unidade',
-  });
-  Caixa.hasMany(models.Lancamento, {
-    foreignKey: 'id_caixa',
-    as: 'lancamentos',
-  });
+(Caixa as any).associate = function (models: any) {
+  // Associações serão definidas em breve
 };
 
 export default Caixa;

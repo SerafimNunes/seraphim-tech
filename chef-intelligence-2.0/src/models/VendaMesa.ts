@@ -2,7 +2,8 @@
 import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '../config/types'; // Importação necessária para a tipagem de associação
-import VendaComanda, { VendaComandaModel } from './VendaComanda'; // 🔑 Importado
+import { ResolvedModelMap } from '../config/associations';
+import VendaComanda from './VendaComanda'; // 🔑 Importado
 import Unidade from './Unidade'; // 🔑 Importado para R4
 
 export type StatusMesa =
@@ -35,7 +36,7 @@ export interface VendaMesaModel
   extends Model<VendaMesaAttributes, VendaMesaCreationAttributes>,
     VendaMesaAttributes {
   // Associações
-  vendaAtual?: VendaComandaModel; // Associa a Comanda aberta
+  vendaAtual?: VendaComanda; // Associa a Comanda aberta
 }
 
 const VendaMesa: ModelCtor<VendaMesaModel> = connection.define<VendaMesaModel>(
@@ -66,7 +67,6 @@ const VendaMesa: ModelCtor<VendaMesaModel> = connection.define<VendaMesaModel>(
   },
   {
     tableName: 'MESAS',
-    sequelize: connection,
     timestamps: true,
     modelName: 'VendaMesa',
     // Criamos um índice composto para garantir que numero_mesa seja único por unidade (R4)
@@ -77,7 +77,7 @@ const VendaMesa: ModelCtor<VendaMesaModel> = connection.define<VendaMesaModel>(
   },
 );
 
-(VendaMesa as any).associate = function (models: IModelFactory) {
+(VendaMesa as any).associate = function (models: ResolvedModelMap) {
   // 🔑 R4: Associa com a Unidade
   VendaMesa.belongsTo(models.Unidade, {
     foreignKey: 'unidade_id',

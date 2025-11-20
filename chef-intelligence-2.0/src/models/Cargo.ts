@@ -1,87 +1,81 @@
 // src/models/Cargo.ts
-import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
-import { connection } from "../config/sequelize";
-import { IModelFactory } from "../config/types";
-import { Colaborador } from "./Colaborador";
-import Permissao, { PermissaoModel } from "./Permissao";
+import { DataTypes, Model, Optional } from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory } from '../config/types';
 
-// 1. Interfaces e Tipagem (GPR-2)
 export interface CargoAttributes {
-  id_cargo: number; // GPR-5: Padrão de chave Primária
+  id_cargo: number;
   unidade_id: number;
   nome_cargo: string;
-  departamento: string;
-  salario_base: number;
+  departamento?: string | null;
+  salario_base?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface CargoCreationAttributes
-  extends Optional<CargoAttributes, "id_cargo"> {}
+  extends Optional<CargoAttributes, 'id_cargo'> {}
 
-// Interface do Modelo
 export interface CargoModel
   extends Model<CargoAttributes, CargoCreationAttributes>,
-    CargoAttributes {
-  permissoes?: PermissaoModel[]; // Associação Many-to-Many
-  usuarios?: any[]; // Associações tipadas
-}
-const Cargo: ModelCtor<CargoModel> = connection.define<
-  CargoModel,
-  CargoCreationAttributes
->(
-  "Cargo",
+    CargoAttributes {}
+
+const Cargo = connection.define<CargoModel>(
+  'Cargo',
   {
     id_cargo: {
       type: DataTypes.INTEGER,
-      primaryKey: true, // GPR-5: Definição de chave primária
-      autoIncrement: true, // GPR-5: Auto incremento
+      primaryKey: true,
+      autoIncrement: true,
     },
     unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      comment: "ID da unidade de Negócio",
     },
     nome_cargo: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING(150),
       allowNull: false,
     },
     departamento: {
       type: DataTypes.STRING(100),
-      allowNull: false,
+      allowNull: true,
     },
     salario_base: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
+      allowNull: true,
       get() {
-        return parseFloat(
-          this.getDataValue("salario_base") as unknown as string
-        );
+        const v = this.getDataValue('salario_base') as unknown as
+          | string
+          | number;
+        return v == null ? null : parseFloat(String(v));
       },
     },
   },
   {
-    tableName: "CARGOS",
+    tableName: 'CARGOS',
+    sequelize: connection,
     timestamps: true,
-    modelName: "Cargo",
-  } as ModelOptions<CargoModel>
+    modelName: 'Cargo',
+  } as any,
 );
 
-// 3. Associação Explicita (GPR-3)
-(Cargo as any).associate = function (models: IModelFactory) {
-  Cargo.hasMany(models.Colaborador as ModelCtor<Colaborador>, {
-    foreignKey: "cargo_id",
-    as: "colaboradores",
-  });
-  // Relacionamento N:M com Permissão
-  Cargo.belongsToMany(models.Permissao, {
-    through: "CargoPermissoes", // Tabela de pivô
-    foreignKey: "cargo_id",
-    as: "permissoes", // ALIAS CRÍTICO: usado para busca aninhada no AuthService
-  });
-  // Associações com Usuário
-  Cargo.hasMany(models.Usuario, {
-    foreignKey: "cargo_id",
-    as: "usuarios",
-  });
+(Cargo as any).associate = (models: IModelFactory) => {
+  if (!models) return;
+  if (models.Permissao) {
+    // many-to-many via join table CARGO_PERMISSOES (exemplo)
+    Cargo.belongsToMany(models.Permissao as any, {
+      through: 'CARGO_PERMISSOES',
+      foreignKey: 'cargo_id',
+      otherKey: 'permissao_id',
+      as: 'permissoes',
+    });
+  }
+  if (models.Usuario) {
+    Cargo.hasMany(models.Usuario as any, {
+      foreignKey: 'cargo_id',
+      as: 'usuarios',
+    });
+  }
 };
 
 export default Cargo;

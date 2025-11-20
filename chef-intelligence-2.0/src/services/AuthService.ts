@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-import Usuario from "../models/Usuario";
+import Usuario, { UsuarioModel } from "../models/Usuario";
 import Cargo from "../models/Cargo";
 import Permissao from "../models/Permissao";
 
@@ -23,11 +23,11 @@ export interface JwtPayload {
 export class AuthService {
   public async login(
     credentials: LoginPayload
-  ): Promise<{ token: string; usuario: Usuario }> {
+  ): Promise<{ token: string; usuario: UsuarioModel }> {
     const { email, senha_hash } = credentials; // 🔑 CORREÇÃO R12: Inclui Cargo e Permissões na busca de login // O 'include' aninhado resolve o relacionamento N:M entre Cargo e Permissao
 
     const usuario = await Usuario.findOne({
-      where: { email },
+      where: { email: email },
       include: [
         {
           model: Cargo,

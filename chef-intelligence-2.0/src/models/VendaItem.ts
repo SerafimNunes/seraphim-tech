@@ -48,16 +48,18 @@ const VendaItem: ModelCtor<VendaItemModel> = connection.define<VendaItemModel>(
       type: DataTypes.DECIMAL(10, 3),
       allowNull: false,
       get() {
-        return parseFloat(this.getDataValue('quantidade') as unknown as string);
+        const v = this.getDataValue('quantidade') as unknown as string | number;
+        return v === null || v === undefined ? 0 : parseFloat(String(v));
       },
     },
     preco_unitario: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       get() {
-        return parseFloat(
-          this.getDataValue('preco_unitario') as unknown as string,
-        );
+        const v = this.getDataValue('preco_unitario') as unknown as
+          | string
+          | number;
+        return v === null || v === undefined ? 0 : parseFloat(String(v));
       },
     },
     preco_venda_total: {
@@ -65,9 +67,10 @@ const VendaItem: ModelCtor<VendaItemModel> = connection.define<VendaItemModel>(
       allowNull: false,
       defaultValue: 0.0,
       get() {
-        return parseFloat(
-          this.getDataValue('preco_venda_total') as unknown as string,
-        );
+        const v = this.getDataValue('preco_venda_total') as unknown as
+          | string
+          | number;
+        return v === null || v === undefined ? 0 : parseFloat(String(v));
       },
     },
     custo_total: {
@@ -75,9 +78,10 @@ const VendaItem: ModelCtor<VendaItemModel> = connection.define<VendaItemModel>(
       allowNull: false,
       defaultValue: 0.0,
       get() {
-        return parseFloat(
-          this.getDataValue('custo_total') as unknown as string,
-        );
+        const v = this.getDataValue('custo_total') as unknown as
+          | string
+          | number;
+        return v === null || v === undefined ? 0 : parseFloat(String(v));
       },
     },
     status_item: {
@@ -88,18 +92,17 @@ const VendaItem: ModelCtor<VendaItemModel> = connection.define<VendaItemModel>(
   },
   {
     tableName: 'ITENS_VENDA',
-    sequelize: connection,
     timestamps: true,
     modelName: 'VendaItem',
   } as any,
 );
 
 (VendaItem as any).associate = function (models: IModelFactory) {
-  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
-  const VendaComandaModel = models.VendaComanda as ModelCtor<any> | undefined;
-  const ItemEstoqueModel = models.ItemEstoque as ModelCtor<any> | undefined;
-  const VendaImpostoModel = models.VendaImposto as ModelCtor<any> | undefined;
-  const VendaComissaoModel = models.VendaComissao as ModelCtor<any> | undefined;
+  const UnidadeModel = models.Unidade as any;
+  const VendaComandaModel = models.VendaComanda as any;
+  const ItemEstoqueModel = models.ItemEstoque as any;
+  const VendaImpostoModel = models.VendaImposto as any;
+  const VendaComissaoModel = models.VendaComissao as any;
 
   if (UnidadeModel) {
     VendaItem.belongsTo(UnidadeModel, {

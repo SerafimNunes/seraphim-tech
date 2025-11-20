@@ -1,10 +1,12 @@
 // src/models/ItemEstoque.ts
 import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
 import { connection } from '../config/sequelize';
+import Unidade from './Unidade';
 import { IModelFactory } from '../config/types';
 
 export interface ItemEstoqueAttributes {
   id_item: number;
+  id_produto: number; // será mapeado para id_item via field
   unidade_id: number;
   nome: string;
   unidade_medida: string;
@@ -22,22 +24,19 @@ export interface ItemEstoqueAttributes {
 export interface ItemEstoqueCreationAttributes
   extends Optional<
     ItemEstoqueAttributes,
-    | 'id_item'
-    | 'estoque_atual'
-    | 'preco_custo_unitario'
-    | 'preco_venda'
-    | 'estoque_minimo'
+    'id_item' | 'id_produto' | 'estoque_atual' | 'preco_custo_unitario'
   > {}
 
 export interface ItemEstoqueModel
   extends Model<ItemEstoqueAttributes, ItemEstoqueCreationAttributes>,
     ItemEstoqueAttributes {
-  // virtual getters
+  unidade?: typeof Unidade;
+  // métodos convenientes
   getSaldoAtual(): number;
   getProntoPedido(): number;
 }
 
-const ItemEstoque: ModelCtor<ItemEstoqueModel> =
+export const ItemEstoque: ModelCtor<ItemEstoqueModel> =
   connection.define<ItemEstoqueModel>(
     'ItemEstoque',
     {
@@ -47,11 +46,20 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         autoIncrement: true,
         field: 'id_item',
       },
+      // Expor id_produto que faz where funcionar.
+      id_produto: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        field: 'id_item', // mapeia para a mesma coluna física
+        get() {
+          return this.getDataValue('id_item');
+        },
+      },
       unidade_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
         comment: 'ID da Unidade de negócio (Regra R4)',
-        references: { model: 'UNIDADES', key: 'id_unidade' },
+        references: { model: 'Unidades', key: 'id_unidade' },
       },
       nome: { type: DataTypes.STRING(100), allowNull: false },
       unidade_medida: { type: DataTypes.STRING(20), allowNull: false },
@@ -65,9 +73,10 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         allowNull: false,
         defaultValue: 0,
         get() {
-          return parseFloat(
-            this.getDataValue('estoque_atual') as unknown as string,
-          );
+          const v = this.getDataValue('estoque_atual') as unknown as
+            | string
+            | number;
+          return v === null || v === undefined ? 0 : parseFloat(String(v));
         },
       },
       estoque_minimo: {
@@ -75,9 +84,10 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         allowNull: false,
         defaultValue: 0,
         get() {
-          return parseFloat(
-            this.getDataValue('estoque_minimo') as unknown as string,
-          );
+          const v = this.getDataValue('estoque_minimo') as unknown as
+            | string
+            | number;
+          return v === null || v === undefined ? 0 : parseFloat(String(v));
         },
       },
       preco_custo_unitario: {
@@ -85,9 +95,10 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         allowNull: false,
         defaultValue: 0,
         get() {
-          return parseFloat(
-            this.getDataValue('preco_custo_unitario') as unknown as string,
-          );
+          const v = this.getDataValue('preco_custo_unitario') as unknown as
+            | string
+            | number;
+          return v === null || v === undefined ? 0 : parseFloat(String(v));
         },
       },
       preco_venda: {
@@ -95,9 +106,10 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         allowNull: false,
         defaultValue: 0,
         get() {
-          return parseFloat(
-            this.getDataValue('preco_venda') as unknown as string,
-          );
+          const v = this.getDataValue('preco_venda') as unknown as
+            | string
+            | number;
+          return v === null || v === undefined ? 0 : parseFloat(String(v));
         },
       },
       is_vendavel: {
@@ -110,62 +122,33 @@ const ItemEstoque: ModelCtor<ItemEstoqueModel> =
         allowNull: false,
         defaultValue: false,
       },
-
-      // virtuals
-      saldo_atual: {
-        type: DataTypes.VIRTUAL,
-        get() {
-          return this.getDataValue('estoque_atual');
-        },
-      },
-      pronto_pedido: {
-        type: DataTypes.VIRTUAL,
-        get() {
-          const atual = this.getDataValue('estoque_atual') || 0;
-          const minimo = this.getDataValue('estoque_minimo') || 0;
-          return atual - minimo;
-        },
-      },
     },
     {
       tableName: 'PRODUTOS',
       timestamps: true,
       modelName: 'ItemEstoque',
+      // Não coloquei `sequelize: connection` (remove para agradar ModelOptions)
     } as any,
   );
 
-(ItemEstoque as any).associate = function (models: IModelFactory) {
-  const UnidadeModel = models.Unidade as ModelCtor<any> | undefined;
-  const VendaItemModel = models.VendaItem as ModelCtor<any> | undefined;
-  const EstoqueRegistroModel = models.EstoqueRegistroMovimento as
-    | ModelCtor<any>
-    | undefined;
-  const FichaTecnicaModel = models.FichaTecnica as ModelCtor<any> | undefined;
+// Métodos utilitários (define via prototype)
+(ItemEstoque as any).prototype.getSaldoAtual = function () {
+  return (this.getDataValue('estoque_atual') as unknown as number) || 0;
+};
+(ItemEstoque as any).prototype.getProntoPedido = function () {
+  const estoqueAtual =
+    (this.getDataValue('estoque_atual') as unknown as number) || 0;
+  const estoqueMinimo =
+    (this.getDataValue('estoque_minimo') as unknown as number) || 0;
+  return estoqueAtual - estoqueMinimo;
+};
 
-  if (UnidadeModel) {
-    ItemEstoque.belongsTo(UnidadeModel, {
-      foreignKey: 'unidade_id',
-      as: 'unidade',
-    });
-  }
-  if (VendaItemModel) {
-    ItemEstoque.hasMany(VendaItemModel, {
-      foreignKey: 'id_produto',
-      as: 'vendaItems',
-    });
-  }
-  if (EstoqueRegistroModel) {
-    ItemEstoque.hasMany(EstoqueRegistroModel, {
-      foreignKey: 'id_item',
-      as: 'movimentos',
-    });
-  }
-  if (FichaTecnicaModel) {
-    ItemEstoque.hasMany(FichaTecnicaModel, {
-      foreignKey: 'id_produto_pai',
-      as: 'fichaTecnica',
-    });
-  }
+(ItemEstoque as any).associate = (models: IModelFactory) => {
+  if (!models || !models.Unidade) return;
+  ItemEstoque.belongsTo(models.Unidade as any, {
+    foreignKey: 'unidade_id',
+    as: 'unidade',
+  });
 };
 
 export default ItemEstoque;

@@ -2,6 +2,7 @@
 import { DataTypes, Model, Optional } from "sequelize";
 import { connection } from "../config/sequelize";
 import { IModelFactory } from "@config/types";
+import { ResolvedModelMap } from '../config/associations';
 
 export interface FeedbackAttributes {
   id_feedback: number;
@@ -81,7 +82,7 @@ Feedback.init(
   }
 );
 
-(Feedback as any).associate = function (models: IModelFactory) {
+(Feedback as any).associate = function (models: ResolvedModelMap) {
   Feedback.belongsTo(models.VendaComanda, {
     foreignKey: "venda_comanda_id",
     as: "venda",

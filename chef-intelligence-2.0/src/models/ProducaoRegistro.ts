@@ -1,6 +1,7 @@
 import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '../config/types';
+import { ResolvedModelMap } from '../config/associations';
 import { ItemEstoqueModel } from './ItemEstoque';
 import { ProducaoRequisicaoInsumoModel } from './ProducaoRequisicaoInsumo'; // 🔑 Novo nome
 
@@ -104,7 +105,7 @@ export const ProducaoRegistro: ModelCtor<ProducaoRegistroModel> =
     },
   );
 
-(ProducaoRegistro as any).associate = (models: IModelFactory) => {
+(ProducaoRegistro as any).associate = (models: ResolvedModelMap) => {
   ProducaoRegistro.belongsTo(
     models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
     {

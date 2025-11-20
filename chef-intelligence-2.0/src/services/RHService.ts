@@ -6,20 +6,21 @@ import {
   IHistoricoPerformance,
   NivelAcesso,
 } from "../config/types";
-import {
-  Colaborador,
+import Colaborador, {
+  ColaboradorModel,
   ColaboradorCreationAttributes,
+  ColaboradorAttributes,
 } from "../models/Colaborador"; // Tipagem
 import { CargoModel, CargoCreationAttributes } from "../models/Cargo"; // Tipagem
 
 // Usamos as interfaces de modelo (ModelCtor) e as interfaces de atributos (Model)
 export class RHService {
-  private Colaborador: ModelCtor<Colaborador>;
+  private Colaborador: ModelCtor<ColaboradorModel>;
   private Cargo: ModelCtor<CargoModel>;
 
   constructor(models: IModelFactory) {
     // 🔑 Injeção dos modelos (GPR-3) - Agora usando ModelCtor
-    this.Colaborador = models.Colaborador as ModelCtor<Colaborador>;
+    this.Colaborador = models.Colaborador as ModelCtor<ColaboradorModel>;
     this.Cargo = models.Cargo as ModelCtor<CargoModel>;
   }
 
@@ -34,7 +35,7 @@ export class RHService {
   public async getColaboradorById(
     id_colaborador: number,
     unidade_id: number
-  ): Promise<Colaborador | null> {
+  ): Promise<ColaboradorModel | null> {
     // GPR-5: Assincronicidade
     return this.Colaborador.findOne({
       where: {
@@ -54,7 +55,7 @@ export class RHService {
     unidade_id: number,
     status?: StatusColaborador,
     nivel_acesso?: NivelAcesso
-  ): Promise<Colaborador[]> {
+  ): Promise<ColaboradorModel[]> {
     const whereClause: WhereOptions = { unidade_id }; // 🔑 GPR-4: Filtro obrigatório
 
     if (status) {
@@ -79,7 +80,7 @@ export class RHService {
    */
   public async createColaborador(
     data: ColaboradorCreationAttributes
-  ): Promise<Colaborador> {
+  ): Promise<ColaboradorModel> {
     if (!data.unidade_id) {
       throw new Error(
         "A unidade_id é obrigatória para a criação de um colaborador."
@@ -96,8 +97,8 @@ export class RHService {
   public async updateColaborador(
     id_colaborador: number,
     unidade_id: number,
-    data: Partial<Colaborador>
-  ): Promise<Colaborador> {
+    data: Partial<ColaboradorAttributes>
+  ): Promise<ColaboradorModel> {
     const colaborador = await this.getColaboradorById(
       id_colaborador,
       unidade_id
@@ -292,7 +293,7 @@ export class RHService {
       throw new Error("Colaborador ou Cargo não encontrado para cálculo.");
     }
 
-    const salarioBase = colaborador.cargo.salario_base;
+    const salarioBase = colaborador.cargo.salario_base || 0; // Provide a default value
     let salarioBruto = salarioBase;
 
     // Lógica GPR-3: Adicionar cálculos de Horas Extras, Adicionais, etc.

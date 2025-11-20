@@ -1,6 +1,7 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { connection } from '../config/sequelize';
 import { IModelFactory } from '../config/types'; // Importando para associação
+import { ResolvedModelMap } from '../config/associations';
 
 export type TipoLancamento = 'RECEITA' | 'DESPESA' | 'SANGRIA' | 'REFORCO';
 
@@ -95,7 +96,7 @@ Lancamento.init(
 );
 
 // GPR-3: Associação Explícita
-(Lancamento as any).associate = function (models: IModelFactory) {
+(Lancamento as any).associate = function (models: ResolvedModelMap) {
   // GPR-1: Associação obrigatória à Unidade
   Lancamento.belongsTo(models.Unidade, {
     foreignKey: 'unidade_id',

@@ -1,67 +1,52 @@
 // src/models/Colaborador.ts
-import { DataTypes, Model, Optional, ModelCtor, ModelOptions } from "sequelize";
-import { connection } from "../config/sequelize";
-import { IModelFactory, NivelAcesso, StatusColaborador } from "../config/types";
-import { CargoModel } from "./Cargo";
-import Cargo from "./Cargo";
+import {
+  DataTypes,
+  Model,
+  Optional,
+  ModelCtor,
+  ModelStatic,
+  BuildOptions,
+} from 'sequelize';
+import { connection } from '../config/sequelize';
+import { IModelFactory, NivelAcesso, StatusColaborador } from '../config/types';
+import { CargoModel } from './Cargo';
 
-// 1. Interfaces e Tipagem (GPR-2)
+export type NivelAcessoType = 'COLABORADOR' | 'GESTOR' | 'ADMIN';
+export type StatusColaboradorType = 'ATIVO' | 'AFASTADO' | 'DESLIGADO';
+
 export interface ColaboradorAttributes {
   id_colaborador: number;
-  unidade_id: number; // Campo R4 Adicionado
+  unidade_id: number;
   nome_completo: string;
   email: string;
-  nivel_acesso: NivelAcesso;
+  nivel_acesso: NivelAcessoType;
   cargo_id: number;
-  Status: StatusColaborador;
+  Status: StatusColaboradorType;
   data_contratacao: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-// Atributos que são opcionais na criação
 export interface ColaboradorCreationAttributes
-  extends Optional<ColaboradorAttributes, "id_colaborador" | "Status"> {}
+  extends Optional<ColaboradorAttributes, 'id_colaborador' | 'Status'> {}
 
-// 2. Definição do Modelo (GPR-3)
-export class Colaborador
-  extends Model<ColaboradorAttributes, ColaboradorCreationAttributes>
-  implements ColaboradorAttributes
-{
-  // NOVO: Defina os atributos como propriedades da Classe
-  public id_colaborador!: number;
-  public unidade_id!: number; //GPR-1: Propriedade R4
-  public nome_completo!: string;
-  public email!: string;
-  public nivel_acesso!: NivelAcesso;
-  public cargo_id!: number;
-  public Status!: StatusColaborador;
-  public data_contratacao!: Date;
-  public cargo?: CargoModel; // Associação opcional com Cargo
-
-  // Define a função estática para associações (GPR-3)
-  public static associate(models: IModelFactory): void {
-    Colaborador.belongsTo(models.Cargo as ModelCtor<CargoModel>, {
-      foreignKey: "cargo_id",
-      as: "cargo",
-    });
-    Colaborador.belongsTo(models.Unidade as ModelCtor<CargoModel>, {
-      foreignKey: "unidade_id",
-      as: "unidade",
-    });
-  }
+export interface ColaboradorModel
+  extends Model<ColaboradorAttributes, ColaboradorCreationAttributes>,
+    ColaboradorAttributes {
+  cargo?: CargoModel;
 }
 
-// 3. Inicialização do Modelo (GPR-3)
-Colaborador.init(
+const Colaborador = connection.define<ColaboradorModel>(
+  'Colaborador',
   {
     id_colaborador: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement: true, // GPR-5
+      autoIncrement: true,
     },
     unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      comment: "ID da unidade de negócio",
     },
     nome_completo: {
       type: DataTypes.STRING(150),
@@ -70,35 +55,49 @@ Colaborador.init(
     email: {
       type: DataTypes.STRING(100),
       allowNull: false,
-      unique: true, // GPR-5: Email único
+      unique: true,
     },
     nivel_acesso: {
-      type: DataTypes.ENUM("COLABORADOR", "GESTOR", "ADMIN"),
+      type: DataTypes.ENUM('COLABORADOR', 'GESTOR', 'ADMIN'),
       allowNull: false,
-      defaultValue: "COLABORADOR",
+      defaultValue: 'COLABORADOR',
     },
     cargo_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
     Status: {
-      type: DataTypes.ENUM("ATIVO", "AFASTADO", "DESLIGADO"),
+      type: DataTypes.ENUM('ATIVO', 'AFASTADO', 'DESLIGADO'),
       allowNull: false,
-      defaultValue: "ATIVO",
+      defaultValue: 'ATIVO',
     },
     data_contratacao: {
       type: DataTypes.DATEONLY,
       allowNull: false,
     },
   },
-  // 4. Configurações de sequelize (GPR-3)
   {
-    tableName: "COLABORADORES",
+    tableName: 'COLABORADORES',
     sequelize: connection,
-    timestamps: false,
-    modelName: "Colaborador",
-  }
+    timestamps: true,
+    modelName: 'Colaborador',
+  } as any,
 );
 
-// 5. Exportação do Modelo
+(Colaborador as any).associate = (models: IModelFactory) => {
+  if (!models) return;
+  if (models.Cargo) {
+    Colaborador.belongsTo(models.Cargo as any, {
+      foreignKey: 'cargo_id',
+      as: 'cargo',
+    });
+  }
+  if (models.Unidade) {
+    Colaborador.belongsTo(models.Unidade as any, {
+      foreignKey: 'unidade_id',
+      as: 'unidade',
+    });
+  }
+};
+
 export default Colaborador;
