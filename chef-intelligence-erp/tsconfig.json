@@ -1,0 +1,31 @@
+// tsconfig.json (CORRIGIDO)
+{
+    "compilerOptions": {
+        // Habilita as transformações para sintaxe ES Modules (import/export)
+        "module": "CommonJS", 
+        // Define o target para uma versão moderna do JavaScript
+        "target": "ES2022",
+        // Habilita todas as verificações de tipo do TypeScript para máxima segurança (Regra R1)
+        "strict": true, 
+        // Permite que módulos JS antigos (CommonJS, como o Express) sejam importados via 'import'
+        "esModuleInterop": true, 
+        // Garante que os nomes dos arquivos importados e no disco coincidam
+        "forceConsistentCasingInFileNames": true,
+        // Define onde o código JavaScript compilado será colocado
+        "outDir": "./dist",
+        // Define a pasta onde estão os arquivos TypeScript de origem
+        "rootDir": "./src",
+        // Suporta módulos com tipagem híbrida (como o Sequelize)
+        "skipLibCheck": true,
+        // Módulos devem resolver caminhos (import 'module' ao invés de 'module/index.js')
+        "moduleResolution": "node", 
+        // Habilita a sintaxe Async/Await (moderna)
+        "allowJs": true,
+        // Garante que todos os caminhos de importação terminam em .js (para compatibilidade com Node.js puro, mesmo importando .ts)
+        "resolveJsonModule": true
+    },
+    // Define quais arquivos devem ser compilados
+    "include": ["src/**/*"],
+    // Define quais arquivos devem ser ignorados
+    "exclude": ["node_modules", "dist"]
+}

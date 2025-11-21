@@ -1,0 +1,34 @@
+Área 1: Rentabilidade e Custo (CMV)
+Foco em: Analisar a margem de lucro real dos produtos, permitindo ajustes de preço e otimização de ficha técnica.
+
+#,KPI Essencial,Cálculo / Origem dos Dados,Objetivo da Decisão,Status
+1.1,CMV Total da Venda (%),VENDAS.custo_total / VENDAS.valor_total,Medir a eficiência do CMV global em um período.,PRÓXIMO
+1.2,Margem de Lucro Bruta por Produto,(ITENS_VENDA.preco_venda_total - ITENS_VENDA.custo_total) / ITENS_VENDA.preco_venda_total,Precificação: Ajustar preços ou negociar melhor com fornecedores.,⬜ Pendente
+
+1.3,Índice de Desperdício (Food Waste) (%),REGISTRO_PERDAS.valor_total / VENDAS.valor_total,"Controle Operacional: Identificar falhas na produção, armazenamento e estoque.",⬜ Pendente
+
+1.4,Custo com Insumos (% da Receita),PEDIDOS_COMPRA.valor_total (Agregado por período) / VENDAS.valor_total,Compras/Contas a Pagar: Avaliar se o volume de compras é proporcional à receita.,⬜ Pendente
+
+Área 2: Vendas e Performance de Mercado
+Foco em: Entender o comportamento do cliente e do cardápio para guiar estratégias de marketing e upselling.
+
+#,KPI Essencial,Cálculo / Origem dos Dados,Objetivo da Decisão,Status
+2.1,Ticket Médio por Venda,SUM(VENDAS.valor_total) / COUNT(VENDAS),Treinamento de Equipe: Estratégias de upselling e venda de acompanhamentos.,⬜ Pendente
+
+2.2,Curva ABC de Vendas (Receita),GROUP BY PRODUTO.nome e SUM(ITENS_VENDA.preco_venda_total),"Cardápio: Decidir quais pratos promover (A), manter (B) ou descontinuar (C).",⬜ Pendente
+
+2.3,Curva ABC de Vendas (Rentabilidade),GROUP BY PRODUTO.nome e SUM(ITENS_VENDA.custo_total),Cardápio: Identificar pratos populares com baixa margem (e vice-versa).,⬜ Pendente
+
+2.4,Taxa de Ocupação Média das Mesas,COUNT(MESAS.status = 'OCUPADA') / COUNT(MESAS) (Agregado por hora/dia),Gestão de Espaço: Ajustar o fluxo de clientes e o tempo de permanência na mesa.,⬜ Pendente
+
+Área 3: Operacional e Auditoria
+Foco em: Medir a eficiência dos processos internos (Estoque, Produção e Mão de Obra).
+
+#,KPI Essencial,Cálculo / Origem dos Dados,Objetivo da Decisão,Status
+3.1,Acuracidade do Estoque (Auditoria),(1 - ABS(CONTAGEM.qtd_cega - PRODUTO.estoque_atual) / PRODUTO.estoque_atual),Controle: Avaliar a eficiência do operador de estoque e a eficácia da contagem cega.,⬜ Pendente
+
+3.2,Tempo Médio de Produção (Prato),AVG(RegistroProducao.data_conclusao - data_aprovacao),Qualidade/Treinamento: Identificar gargalos na cozinha.,⬜ Pendente
+
+3.3,Custo com Mão de Obra (Labor Cost) (%),Total de Salários/Hora / VENDAS.valor_total,Escala de Funcionários: Ajustar a escala em períodos de baixa e alta demanda.,⬜ Pendente
+
+3.4,Movimentação de Estoque (Geral),COUNT(MOVIMENTO_ESTOQUE) (Agregado por tipo: ENTRADA vs. SAÍDA),Auditoria: Visão macro das transações de estoque.,⬜ Pendente

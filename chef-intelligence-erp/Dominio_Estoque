@@ -1,0 +1,1349 @@
+########################################################
+# DOMÍNIO: ESTOQUE (12 ARQUIVOS)
+########################################################
+
+
+========================================
+ARQUIVO: src\controllers\EstoqueContagemController.ts
+========================================
+
+// src/controllers/EstoqueContagemController.ts (Refatorado para usar o Service)
+
+import { Request, Response } from "express";
+import { z } from "zod"; // 💡 Importa o Zod para validação
+import { EstoqueContagemService } from "../services/EstoqueContagemService"; // 🔑 Importa o Service
+
+class EstoqueContagemController {
+  private contagemService: EstoqueContagemService;
+
+  constructor() {
+    // Inicializa o Service
+    this.contagemService = new EstoqueContagemService();
+  }
+
+  // 💡 Define um schema de validação com Zod
+  private contagemSchema = z.object({
+    id_produto: z.number().int().positive(),
+    estoque_contado: z.number().nonnegative(),
+    colaborador_id: z.number().int().positive(),
+  });
+
+  /**
+   * Registra uma nova Contagem Cega (Inventário Físico) de um produto.
+   * Rota: POST /api/v1/contagem
+   * @body { id_produto, estoque_contado, colaborador_id }
+   */
+  async store(req: Request, res: Response): Promise<Response> {
+    try {
+      // 1. 💡 Validação de Entrada robusta com Zod
+      const payload = this.contagemSchema.parse(req.body);
+
+      // 2. 🔑 CHAMADA AO SERVICE: Toda a lógica transacional e cálculo está aqui.
+      const { produto, resultado_auditoria } =
+        await this.contagemService.registrarContagem({
+          id_produto: payload.id_produto,
+          estoque_contado: payload.estoque_contado,
+          colaborador_id: payload.colaborador_id,
+        });
+
+      // 3. Retorno de Sucesso
+      return res.status(201).json({
+        message: `Contagem cega de ${produto.nome} registrada e estoque ajustado.`,
+        resultado_auditoria: resultado_auditoria,
+      });
+    } catch (error) {
+      // Se o erro for do Zod, retorna um erro 400 (Bad Request)
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({
+            error: "Dados de entrada inválidos.",
+            details: error.issues,
+          });
+      }
+
+      console.error("❌ ERRO NA TRANSAÇÃO DE CONTAGEM CEGA:", error);
+      // O 'error as Error' é necessário para garantir a tipagem
+      return res.status(500).json({
+        error: "Erro ao registrar contagem de estoque.",
+        details: (error as Error).message,
+      });
+    }
+  }
+}
+
+export default new EstoqueContagemController();
+
+
+
+========================================
+ARQUIVO: src\controllers\EstoqueItemController.ts
+========================================
+
+// src/controllers/EstoqueItemController.ts (CORRIGIDO: Nomenclatura)
+
+import { Request, Response } from "express";
+import { EstoqueItemService } from "../services/EstoqueItemService";
+import { connection } from "../config/sequelize";
+import { Sequelize } from "sequelize";
+
+// Tipagem para Recebimento (Entrada de Estoque)
+interface ReceberEstoqueBody {
+  // id_produto será lido do req.params.id
+  quantidade: number;
+  custo_unitario: number;
+  colaborador_id: number;
+  tipo_movimento: "COMPRA" | "AJUSTE_ENTRADA";
+  referencia_origem: string;
+}
+
+// Tipagem para Saída de Estoque (Baixa)
+interface SaidaEstoqueBody {
+  // id_produto será lido do req.params.id
+  quantidade: number;
+  colaborador_id: number;
+  tipo_movimento: "VENDA" | "PRODUCAO" | "PERDA" | "AJUSTE_SAIDA";
+  referencia_origem: string;
+}
+
+// Tipagem básica para o corpo do Item de Estoque (Criação/Atualização)
+interface ItemEstoqueBody {
+  nome: string; // CORREÇÃO: Usando 'nome' (Model: ItemEstoque)
+  unidade_medida: string;
+  is_vendavel: boolean;
+  is_pre_pronto: boolean;
+  id_unidade: number; // Assumindo que 'id_unidade' existe
+  [key: string]: any;
+}
+
+class EstoqueItemController {
+  private service: EstoqueItemService;
+  private sequelize: Sequelize;
+
+  constructor() {
+    this.sequelize = connection;
+    this.service = new EstoqueItemService(this.sequelize);
+  } // --- 1. CRUD Métodos Padrão ---
+
+  public async store(req: Request, res: Response): Promise<Response> {
+    try {
+      // Usa o método 'create' do service
+      const produto = await this.service.create(req.body);
+      return res
+        .status(201)
+        .json({ message: "Item criado com sucesso.", data: produto });
+    } catch (error: any) {
+      console.error("Erro ao criar item:", error.message);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+
+  public async index(req: Request, res: Response): Promise<Response> {
+    try {
+      const produtos = await this.service.findAll();
+      return res.status(200).json(produtos);
+    } catch (error: any) {
+      console.error("Erro ao listar itens:", error.message);
+      return res
+        .status(500)
+        .json({ error: "Falha ao listar itens de estoque." });
+    }
+  }
+
+  public async show(req: Request, res: Response): Promise<Response> {
+    const id_produto = parseInt(req.params.id); // 'id' é o parâmetro na rota
+    if (isNaN(id_produto))
+      return res.status(400).json({ error: "ID inválido." });
+
+    try {
+      const produto = await this.service.findById(id_produto);
+      if (!produto) {
+        return res.status(404).json({ error: "Item não encontrado." });
+      }
+      return res.status(200).json(produto);
+    } catch (error: any) {
+      console.error(`Erro ao buscar item ${id_produto}:`, error.message);
+      return res.status(500).json({ error: "Falha ao buscar item." });
+    }
+  }
+
+  public async update(req: Request, res: Response): Promise<Response> {
+    const id_produto = parseInt(req.params.id); // 'id' é o parâmetro na rota
+    if (isNaN(id_produto))
+      return res.status(400).json({ error: "ID inválido." });
+
+    const updates: Partial<ItemEstoqueBody> = req.body;
+
+    try {
+      const produtoAtualizado = await this.service.update(id_produto, updates);
+
+      return res.status(200).json({
+        message: "Item atualizado com sucesso.",
+        data: produtoAtualizado,
+      });
+    } catch (error: any) {
+      console.error(`Erro ao atualizar item ${id_produto}:`, error.message);
+      return res.status(500).json({ error: error.message });
+    }
+  } // --- 2. Lógica de Movimentação de Estoque ---
+
+  public async receberEstoque(req: Request, res: Response): Promise<Response> {
+    const id_produto = parseInt(req.params.id); // ID do Path
+    if (isNaN(id_produto))
+      return res.status(400).json({ error: "ID do item inválido na rota." });
+
+    const body: ReceberEstoqueBody = req.body;
+
+    const dataParaService = { ...body, id_produto };
+
+    if (
+      !dataParaService.id_produto ||
+      !dataParaService.quantidade ||
+      !dataParaService.custo_unitario ||
+      !dataParaService.colaborador_id ||
+      !dataParaService.tipo_movimento ||
+      !dataParaService.referencia_origem
+    ) {
+      return res.status(400).json({
+        error:
+          "Campos obrigatórios faltando: quantidade, custo_unitario, colaborador_id, tipo_movimento ou referencia_origem.",
+      });
+    }
+
+    try {
+      const itemAtualizado = await this.service.receberEstoque(dataParaService);
+      return res.status(200).json({
+        message:
+          "Entrada de estoque registrada com sucesso. Saldo e CMP atualizados.",
+        data: itemAtualizado,
+      });
+    } catch (error: any) {
+      console.error("Erro ao registrar entrada de estoque:", error.message);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+
+  public async saidaEstoque(req: Request, res: Response): Promise<Response> {
+    const id_produto = parseInt(req.params.id); // ID do Path
+    if (isNaN(id_produto))
+      return res.status(400).json({ error: "ID do item inválido na rota." });
+    const body: SaidaEstoqueBody = req.body;
+
+    const dataParaService = { ...body, id_produto };
+
+    if (
+      !dataParaService.id_produto ||
+      !dataParaService.quantidade ||
+      !dataParaService.colaborador_id ||
+      !dataParaService.tipo_movimento ||
+      !dataParaService.referencia_origem
+    ) {
+      return res.status(400).json({
+        error:
+          "Campos obrigatórios faltando: quantidade, colaborador_id, tipo_movimento ou referencia_origem.",
+      });
+    }
+
+    try {
+      const { produto, custo_saida } = await this.service.saidaEstoque(
+        dataParaService
+      );
+
+      return res.status(200).json({
+        message: `Saída de estoque registrada com sucesso. Custo de Saída (CMV): R$ ${custo_saida}`,
+        data: produto,
+        custo_saida_calculado: custo_saida,
+      });
+    } catch (error: any) {
+      console.error("Erro ao registrar saída de estoque:", error.message);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+}
+
+export default new EstoqueItemController();
+
+
+
+========================================
+ARQUIVO: src\controllers\EstoqueMovimentoController.ts
+========================================
+
+// src/controllers/EstoqueMovimentoController.ts (Refatorado de MovimentoController.js)
+
+import { Request, Response } from "express";
+import { WhereOptions } from "sequelize";
+import EstoqueRegistroMovimento from "../models/EstoqueRegistroMovimento"; // Novo nome do Model
+import ItemEstoque from "../models/ItemEstoque"; // Novo nome do Model
+
+class EstoqueMovimentoController {
+  /**
+   * Lista o histórico de movimentos de estoque, com filtros opcionais.
+   * Rota: GET /api/v1/movimentos
+   * Query Params: id_produto (number), tipo_movimento (string - ENTRADA, SAIDA, etc.)
+   */
+  async index(req: Request, res: Response): Promise<Response> {
+    // Query parameters são strings por padrão (Ex: req.query.id_produto é '1' ou undefined)
+    const { id_produto, tipo_movimento } = req.query;
+
+    // Cria o objeto WHERE para filtrar a consulta (tipado)
+    const where: WhereOptions = {};
+
+    if (id_produto) {
+      // Conversão segura de id_produto para número
+      const idProdutoNum = parseInt(id_produto as string, 10);
+      if (isNaN(idProdutoNum)) {
+        return res
+          .status(400)
+          .json({ error: "O id_produto fornecido é inválido." });
+      }
+      where.id_produto = idProdutoNum;
+    }
+
+    if (tipo_movimento && typeof tipo_movimento === "string") {
+      // Filtra pelo tipo de movimento (ENTRADA, SAIDA, etc.)
+      where.tipo_movimento = tipo_movimento.toUpperCase();
+    }
+
+    try {
+      const movimentos = await EstoqueRegistroMovimento.findAll({
+        where,
+        // Inclui o nome do produto (Model ItemEstoque) para facilitar a leitura do relatório
+        include: [
+          {
+            model: ItemEstoque,
+            as: "produto",
+            attributes: ["id_produto", "nome", "unidade_medida"],
+          },
+        ],
+        // Ordena do mais recente para o mais antigo
+        order: [["createdAt", "DESC"]],
+      });
+
+      return res.status(200).json(movimentos);
+    } catch (error) {
+      console.error("❌ ERRO AO LISTAR MOVIMENTOS:", error);
+      return res.status(500).json({
+        error: "Erro ao listar movimentos de estoque.",
+        details: (error as Error).message,
+      });
+    }
+  }
+}
+
+export default new EstoqueMovimentoController();
+
+
+
+========================================
+ARQUIVO: src\models\EstoqueRegistroContagem.ts
+========================================
+
+// src/models/EstoqueRegistroContagem.ts
+
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { ItemEstoqueModel } from "./ItemEstoque"; // Importa o modelo pai
+
+// R1. Interface para Atributos
+export interface EstoqueRegistroContagemAttributes {
+  id_contagem: number;
+  id_produto: number;
+  data_contagem: Date;
+  estoque_contado: number;
+  estoque_teorico_na_hora: number;
+  discrepancia: number;
+  custo_discrepancia: number;
+  colaborador_id: number | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// R2. Interface para Criação
+export interface EstoqueRegistroContagemCreationAttributes
+  extends Optional<
+    EstoqueRegistroContagemAttributes,
+    | "id_contagem"
+    | "data_contagem"
+    | "colaborador_id"
+    | "createdAt"
+    | "updatedAt"
+  > {}
+
+// R3. Interface do Modelo
+export interface EstoqueRegistroContagemModel
+  extends Model<
+      EstoqueRegistroContagemAttributes,
+      EstoqueRegistroContagemCreationAttributes
+    >,
+    EstoqueRegistroContagemAttributes {
+  produto?: ItemEstoqueModel;
+}
+
+// R4. Criação e Exportação do Modelo (CORRIGIDO)
+// 🔑 CORREÇÃO: Removemos a anotação de tipo na esquerda (`: ModelCtor<...>`) e garantimos os DOIS tipos genéricos na direita.
+const EstoqueRegistroContagem = connection.define<
+  EstoqueRegistroContagemModel,
+  EstoqueRegistroContagemCreationAttributes
+>(
+  "EstoqueRegistroContagem",
+  {
+    id_contagem: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+      field: "id_contagem",
+    },
+    id_produto: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      field: "id_produto",
+    },
+    data_contagem: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    estoque_contado: {
+      type: DataTypes.DECIMAL(10, 3),
+      allowNull: false,
+    },
+    estoque_teorico_na_hora: {
+      type: DataTypes.DECIMAL(10, 3),
+      allowNull: false,
+    },
+    discrepancia: {
+      type: DataTypes.DECIMAL(10, 3),
+      allowNull: false,
+    },
+    custo_discrepancia: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+    },
+    colaborador_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: "colaborador_id",
+    },
+  },
+  {
+    tableName: "CONTAGEM_ESTOQUE",
+    timestamps: true,
+    modelName: "EstoqueRegistroContagem",
+  }
+);
+
+// R5: Associações
+(EstoqueRegistroContagem as any).associate = function (models: IModelFactory) {
+  // 1:N - Cada ItemEstoque (PRODUTOS) pode ter muitas Contagens
+  EstoqueRegistroContagem.belongsTo(
+    models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
+    {
+      foreignKey: "id_produto",
+      as: "produto",
+      targetKey: "id_produto",
+    }
+  );
+};
+
+export default EstoqueRegistroContagem;
+
+
+
+========================================
+ARQUIVO: src\models\EstoqueRegistroMovimento.ts
+========================================
+
+// src/models/EstoqueRegistroMovimento.ts (CORRIGIDO NOVAMENTE - Incluindo 'observacoes' como opcional)
+
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { ItemEstoqueModel } from "./ItemEstoque";
+
+// R1. Interface para Atributos
+export interface EstoqueRegistroMovimentoAttributes {
+  id_movimento: number;
+  id_produto: number;
+  tipo_movimento: "ENTRADA" | "SAIDA" | "AJUSTE_SOBRA" | "AJUSTE_PERDA"; // Enum de tipos
+  quantidade: number;
+  preco_custo_unitario_momento: number;
+  custo_total_movimento: number;
+  estoque_anterior: number;
+  estoque_atual: number;
+  referencia_origem: string | null;
+  colaborador_id: number | null;
+  observacoes: string | null; // ⬅️ GARANTIR QUE ESTÁ AQUI
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// R2. Interface para Criação
+export interface EstoqueRegistroMovimentoCreationAttributes
+  extends Optional<
+    EstoqueRegistroMovimentoAttributes,
+    | "id_movimento"
+    | "custo_total_movimento"
+    | "referencia_origem"
+    | "colaborador_id"
+    | "observacoes" // ⬅️ CORREÇÃO CRÍTICA: AGORA É OPCIONAL NA CRIAÇÃO
+    | "createdAt"
+    | "updatedAt"
+  > {}
+
+// R3. Interface do Modelo
+export interface EstoqueRegistroMovimentoModel
+  extends Model<
+      EstoqueRegistroMovimentoAttributes,
+      EstoqueRegistroMovimentoCreationAttributes
+    >,
+    EstoqueRegistroMovimentoAttributes {
+  produto?: ItemEstoqueModel;
+}
+
+// R4. Criação e Exportação do Modelo
+const EstoqueRegistroMovimento = connection.define<
+  EstoqueRegistroMovimentoModel,
+  EstoqueRegistroMovimentoCreationAttributes
+>(
+  "EstoqueRegistroMovimento",
+  {
+    id_movimento: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    id_produto: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      field: "id_produto",
+    },
+    tipo_movimento: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+    },
+    quantidade: {
+      type: DataTypes.DECIMAL(10, 3),
+      allowNull: false,
+    },
+    preco_custo_unitario_momento: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
+    custo_total_movimento: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
+    estoque_anterior: {
+      type: DataTypes.DECIMAL(10, 3),
+      allowNull: false,
+    },
+    estoque_atual: {
+      type: DataTypes.DECIMAL(10, 3),
+      allowNull: false,
+    },
+    referencia_origem: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    colaborador_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    observacoes: {
+      // ⬅️ GARANTIR QUE ESTÁ NO MODEL
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+  },
+  {
+    tableName: "MOVIMENTO_ESTOQUE",
+    timestamps: true,
+    modelName: "EstoqueRegistroMovimento",
+  }
+);
+
+// R5: Associações
+(EstoqueRegistroMovimento as any).associate = function (models: IModelFactory) {
+  EstoqueRegistroMovimento.belongsTo(
+    models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
+    {
+      foreignKey: "id_produto",
+      as: "produto",
+      targetKey: "id_produto",
+    }
+  );
+};
+
+export default EstoqueRegistroMovimento;
+
+
+
+========================================
+ARQUIVO: src\models\ItemEstoque.ts
+========================================
+
+// src/models/ItemEstoque.ts (CORRIGIDO)
+
+import { DataTypes, Model, Optional, ModelCtor, Sequelize } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+
+// R1. Interface para Atributos
+export interface ItemEstoqueAttributes {
+  id_produto: number;
+  nome: string;
+  unidade_medida: string;
+  estoque_atual: number;
+  estoque_minimo: number;
+  preco_custo_unitario: number;
+  preco_venda: number;
+  is_vendavel: boolean;
+  is_pre_pronto: boolean; // ⬅️ CORRIGIDO (Para corresponder ao Controller e à lógica original)
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// R2. Interface para Criação (Atributos opcionais na criação)
+export interface ItemEstoqueCreationAttributes
+  extends Optional<
+    ItemEstoqueAttributes,
+    | "id_produto"
+    | "estoque_atual"
+    | "preco_custo_unitario"
+    | "createdAt"
+    | "updatedAt"
+    // is_pre_pronto NÃO está aqui pois o Controller fornece um valor (false) se for omitido.
+  > {}
+
+// R3. Interface do Modelo
+export interface ItemEstoqueModel
+  extends Model<ItemEstoqueAttributes, ItemEstoqueCreationAttributes>,
+    ItemEstoqueAttributes {}
+
+// R4. Criação e Exportação do Modelo
+const ItemEstoque: ModelCtor<ItemEstoqueModel> =
+  connection.define<ItemEstoqueModel>(
+    "ItemEstoque",
+    {
+      id_produto: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+        field: "id_produto",
+      },
+      nome: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        unique: true,
+      },
+      unidade_medida: {
+        type: DataTypes.STRING(10),
+        allowNull: false,
+      },
+      estoque_atual: {
+        type: DataTypes.DECIMAL(10, 3),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      estoque_minimo: {
+        type: DataTypes.DECIMAL(10, 3),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      preco_custo_unitario: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      preco_venda: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      is_vendavel: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      is_pre_pronto: {
+        // ⬅️ CORRIGIDO
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+    },
+    {
+      tableName: "PRODUTOS",
+      timestamps: true,
+      modelName: "ItemEstoque",
+    }
+  );
+
+// R5: Método estático para associações
+(ItemEstoque as any).associate = function (models: IModelFactory) {
+  // Associações serão definidas em breve
+};
+
+export default ItemEstoque;
+
+
+
+========================================
+ARQUIVO: src\routes\EstoqueContagemRoutes.ts
+========================================
+
+// src/routes/EstoqueContagemRoutes.ts (CORRIGIDO: Incluindo RBAC)
+
+import { Router } from "express";
+// 🔑 Importa a instância exportada do Controller
+import EstoqueContagemController from "../controllers/EstoqueContagemController";
+import { authMiddleware } from "../Middlewares/authMiddleware";
+import { podeAcessar } from "../Middlewares/rbacMiddleware";
+
+const router = Router();
+
+// Rota POST para registrar uma nova Contagem Cega: POST /api/v1/contagem
+// Protegida por Auth e RBAC (R12) - Apenas Gerente ou Estoquista.
+router.post(
+  "/contagem",
+  authMiddleware,
+  podeAcessar(["Gerente", "Estoquista"]),
+  EstoqueContagemController.store
+);
+
+export default router;
+
+
+
+========================================
+ARQUIVO: src\routes\EstoqueItemRoutes.ts
+========================================
+
+// src/routes/EstoqueItemRoutes.ts (Refatorado de produtoRoutes.js)
+
+import express from "express";
+// Importa a INSTÂNCIA do Controller (Corrigido para ser uma instância, resolvendo TS2339)
+import EstoqueItemController from "../controllers/EstoqueItemController";
+
+const router = express.Router();
+
+// Rota POST para criar um novo item: POST /api/v1/produtos
+router.post("/produtos", EstoqueItemController.store);
+
+// Rota GET para listar todos: GET /api/v1/produtos
+router.get("/produtos", EstoqueItemController.index);
+
+// Rota GET para buscar por ID: GET /api/v1/produtos/:id
+router.get("/produtos/:id", EstoqueItemController.show);
+
+// Rota PUT para atualizar: PUT /api/v1/produtos/:id
+router.put("/produtos/:id", EstoqueItemController.update);
+
+// Rota PATCH para entrada/compra de estoque (CMV - R3): PATCH /api/v1/produtos/:id/entrada
+// O Controller lerá o :id para saber qual item movimentar.
+router.patch("/produtos/:id/entrada", EstoqueItemController.receberEstoque);
+
+// Rota PATCH para saída/consumo de estoque (Bloqueio Negativo - R2): PATCH /api/v1/produtos/:id/saida
+// O Controller lerá o :id para saber qual item movimentar.
+router.patch("/produtos/:id/saida", EstoqueItemController.saidaEstoque);
+
+export default router;
+
+
+
+========================================
+ARQUIVO: src\routes\EstoqueMovimentoRoutes.ts
+========================================
+
+// src/routes/movimentoRoutes.ts (Refatorado de movimentoRoutes.js)
+
+import express from "express";
+import EstoqueMovimentoController from "../controllers/EstoqueMovimentoController"; // 🔑 NOVO CONTROLLER
+
+const router = express.Router();
+
+// Rota GET para listar todos os movimentos de estoque (com filtros opcionais)
+router.get("/movimentos", EstoqueMovimentoController.index);
+
+export default router;
+
+
+
+========================================
+ARQUIVO: src\services\EstoqueContagemService.ts
+========================================
+
+// src/services/EstoqueContagemService.ts
+
+import { Transaction, Sequelize } from "sequelize";
+import { connection } from "../config/sequelize";
+import EstoqueRegistroContagem, {
+  EstoqueRegistroContagemCreationAttributes,
+} from "../models/EstoqueRegistroContagem";
+import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque";
+import Decimal from "decimal.js";
+
+interface ContagemPayload {
+  id_produto: number;
+  estoque_contado: number;
+  colaborador_id: number;
+}
+
+export class EstoqueContagemService {
+  /**
+   * Registra uma nova Contagem Cega (Inventário Físico) e ajusta o estoque.
+   * Esta é uma operação atômica e crítica que usa SERIALIZABLE lock.
+   */
+  public async registrarContagem(
+    payload: ContagemPayload
+  ): Promise<{ produto: ItemEstoqueModel; resultado_auditoria: any }> {
+    const { id_produto, estoque_contado, colaborador_id } = payload;
+
+    // 🔑 INÍCIO DA TRANSAÇÃO ATÔMICA com SERIALIZABLE lock
+    const transaction = await connection.transaction({
+      isolationLevel: (Sequelize as any).Transaction.ISOLATION_LEVELS
+        .SERIALIZABLE,
+    });
+
+    try {
+      // 1. Busca o Produto com Lock de Atualização
+      const produto = (await ItemEstoque.findByPk(id_produto, {
+        attributes: [
+          "id_produto",
+          "nome",
+          "estoque_atual",
+          "preco_custo_unitario",
+          "unidade_medida",
+        ],
+        lock: transaction.LOCK.UPDATE, // Garante que o estoque_atual não mude
+        transaction,
+      })) as ItemEstoqueModel | null;
+
+      if (!produto) {
+        throw new Error("Produto não encontrado.");
+      }
+
+      // --- 2. CÁLCULOS CRÍTICOS (Usando Decimal.js) ---
+      const estoqueTeorico = new Decimal(
+        produto.estoque_atual as unknown as string
+      );
+      const estoqueFisico = new Decimal(estoque_contado);
+      const custoUnitario = new Decimal(
+        produto.preco_custo_unitario as unknown as string
+      );
+
+      // Diferença: Contado - Teórico
+      const discrepancia = estoqueFisico.minus(estoqueTeorico);
+
+      // Custo da Discrepância: Diferença * Custo Unitário (usando .abs() para valor absoluto)
+      const custoDiscrepancia = discrepancia.abs().times(custoUnitario);
+
+      const tipoDiscrepancia = discrepancia.isNegative() ? "Perda" : "Sobra";
+
+      // 3. REGISTRA A CONTAGEM (Auditoria)
+      const registroData: EstoqueRegistroContagemCreationAttributes = {
+        id_produto,
+        estoque_contado: estoqueFisico.toNumber(),
+        estoque_teorico_na_hora: estoqueTeorico.toNumber(),
+        discrepancia: discrepancia.toNumber(),
+        custo_discrepancia: custoDiscrepancia.toNumber(),
+        colaborador_id,
+      };
+
+      await EstoqueRegistroContagem.create(registroData, { transaction });
+
+      // 4. ATUALIZAÇÃO CRÍTICA DO ESTOQUE (Ajuste)
+      // O estoque atual do produto é ajustado para o valor contado
+      await produto.update(
+        {
+          estoque_atual: estoqueFisico.toNumber(),
+        },
+        { transaction }
+      );
+
+      // 5. Commit da Transação
+      await transaction.commit();
+
+      // 6. Retorno dos dados para o Controller
+      const resultado_auditoria = {
+        discrepancia: `${discrepancia.abs().toFixed(3)} ${
+          produto.unidade_medida
+        } de ${tipoDiscrepancia}.`,
+        ajuste_financeiro: `R$ ${custoDiscrepancia.toFixed(2)}`,
+        estoque_atual_apos_ajuste: estoqueFisico.toFixed(3),
+      };
+
+      return { produto, resultado_auditoria };
+    } catch (error) {
+      await transaction.rollback();
+      // Lança o erro para o Controller
+      throw error;
+    }
+  }
+}
+
+
+
+========================================
+ARQUIVO: src\services\EstoqueItemService.ts
+========================================
+
+// src/services/EstoqueItemService.ts (VERSÃO FINAL: Resolução de Tipo com InstanceType)
+
+import { Sequelize, Transaction } from "sequelize";
+import ItemEstoque, {
+  ItemEstoqueModel,
+  ItemEstoqueAttributes,
+  ItemEstoqueCreationAttributes,
+} from "../models/ItemEstoque"; // Importação real
+import EstoqueRegistroMovimento, {
+  EstoqueRegistroMovimentoCreationAttributes,
+} from "../models/EstoqueRegistroMovimento"; // Importação real
+
+// 💡 CORREÇÃO FINAL (TS2305): Removemos o import type.
+// Usamos apenas a importação do VALOR (o construtor) e o renomeamos.
+import DecimalCtor from "decimal.js";
+
+// Tipagem para Entrada (Recebimento) de Estoque
+interface EntradaEstoqueData {
+  id_produto: number;
+  quantidade: number;
+  custo_unitario: number;
+  colaborador_id: number;
+  tipo_movimento: "COMPRA" | "AJUSTE_ENTRADA";
+  referencia_origem: string;
+}
+
+// Tipagem para Saída (Baixa) de Estoque
+interface SaidaEstoqueData {
+  id_produto: number;
+  quantidade: number;
+  colaborador_id: number;
+  tipo_movimento: "VENDA" | "PRODUCAO" | "PERDA" | "AJUSTE_SAIDA";
+  referencia_origem: string;
+}
+
+interface SaidaEstoqueResultado {
+  produto: ItemEstoqueModel;
+  custo_saida: number; // O CMV (Custo da Mercadoria Vendida) ou custo da saída
+}
+
+// 🔑 Tipo de instância: Obter o tipo da instância do construtor DecimalCtor
+type DecimalInstance = InstanceType<typeof DecimalCtor>;
+
+export class EstoqueItemService {
+  private sequelize: Sequelize;
+
+  constructor(sequelize: Sequelize) {
+    this.sequelize = sequelize;
+  } // ---------------------------------------------------- // --- MÉTODOS CRUD BÁSICOS --- // ----------------------------------------------------
+
+  public async create(
+    data: ItemEstoqueCreationAttributes
+  ): Promise<ItemEstoqueModel> {
+    const transaction = await this.sequelize.transaction();
+    try {
+      const item = await ItemEstoque.create(data, { transaction });
+      await transaction.commit();
+      return item;
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
+  public async findAll(): Promise<ItemEstoqueModel[]> {
+    return ItemEstoque.findAll();
+  }
+
+  public async findById(id_produto: number): Promise<ItemEstoqueModel | null> {
+    return ItemEstoque.findByPk(id_produto);
+  }
+
+  public async update(
+    id_produto: number,
+    updates: Partial<ItemEstoqueAttributes>
+  ): Promise<ItemEstoqueModel> {
+    const produto = await this.findById(id_produto);
+    if (!produto) {
+      throw new Error("Item de estoque não encontrado.");
+    }
+    await produto.update(updates);
+    return produto;
+  }  // ---------------------------------------------------- // --- LÓGICA DE MOVIMENTAÇÃO DE ESTOQUE (R2, R3) --- // ----------------------------------------------------
+  /**
+   * Registra a entrada de estoque e atualiza o CMP (Custo Médio Ponderado - R3).
+   */
+
+  public async receberEstoque(
+    data: EntradaEstoqueData,
+    externalTransaction?: Transaction
+  ): Promise<ItemEstoqueModel> {
+    const {
+      id_produto,
+      quantidade,
+      custo_unitario,
+      colaborador_id,
+      tipo_movimento,
+      referencia_origem,
+    } = data; // 🔑 INÍCIO DA TRANSAÇÃO ATÔMICA
+
+    const transaction =
+      externalTransaction || (await this.sequelize.transaction());
+
+    try {
+      // 1. Buscar e bloquear o Item de Estoque (LOCK.UPDATE)
+      const produto = (await ItemEstoque.findByPk(id_produto, {
+        lock: transaction.LOCK.UPDATE,
+        transaction,
+      })) as ItemEstoqueModel | null;
+
+      if (!produto) {
+        throw new Error(`Produto ID ${id_produto} não encontrado.`);
+      } // Usando DecimalCtor para cálculos precisos (R3)
+
+      const qteNova = new DecimalCtor(quantidade);
+      const custoNovoUnitario = new DecimalCtor(custo_unitario);
+      const estoqueAnterior = new DecimalCtor(produto.estoque_atual);
+      const cmpAnterior = new DecimalCtor(produto.preco_custo_unitario); // CMP = [(Estoque Antigo * CMP Antigo) + (Qte Nova * Custo Novo)] / (Estoque Antigo + Qte Nova)
+
+      const custoTotalAntigo = estoqueAnterior.times(cmpAnterior);
+      const custoTotalNovo = qteNova.times(custoNovoUnitario);
+      const novoEstoqueTotal = estoqueAnterior.plus(qteNova);
+
+      let novoCmp: DecimalInstance; // ⬅️ MUDANÇA AQUI: Usa o novo tipo derivado
+      if (novoEstoqueTotal.isZero()) {
+        novoCmp = new DecimalCtor(0);
+      } else {
+        novoCmp = custoTotalAntigo
+          .plus(custoTotalNovo)
+          .dividedBy(novoEstoqueTotal);
+      }
+      const custoTotalMovimento = custoTotalNovo; // 2. Registro do Movimento (Auditoria)
+
+      const movimentoData: EstoqueRegistroMovimentoCreationAttributes = {
+        id_produto,
+        tipo_movimento: "ENTRADA",
+        quantidade: qteNova.toNumber(),
+        preco_custo_unitario_momento: novoCmp.toNumber(),
+        custo_total_movimento: custoTotalMovimento.toNumber(),
+        estoque_anterior: estoqueAnterior.toNumber(),
+        estoque_atual: novoEstoqueTotal.toNumber(),
+        referencia_origem,
+        colaborador_id,
+        observacoes: `${tipo_movimento}: ${referencia_origem}`,
+      };
+      await EstoqueRegistroMovimento.create(movimentoData, { transaction }); // 3. Atualização do Item de Estoque
+
+      await produto.update(
+        {
+          estoque_atual: novoEstoqueTotal.toNumber(),
+          preco_custo_unitario: novoCmp.toNumber(), // O novo CMP
+        },
+        { transaction }
+      ); // 4. Commit (apenas se a transação for interna)
+
+      if (!externalTransaction) {
+        await transaction.commit();
+      }
+
+      return produto;
+    } catch (error) {
+      if (!externalTransaction) {
+        await transaction.rollback();
+      }
+      throw error;
+    }
+  }
+  /**
+   * Registra a saída de estoque (baixa) e retorna o CMV (R2, R3).
+   */
+
+  public async saidaEstoque(
+    data: SaidaEstoqueData,
+    externalTransaction?: Transaction
+  ): Promise<SaidaEstoqueResultado> {
+    const {
+      id_produto,
+      quantidade,
+      colaborador_id,
+      tipo_movimento,
+      referencia_origem,
+    } = data; // 🔑 INÍCIO DA TRANSAÇÃO ATÔMICA
+
+    const transaction =
+      externalTransaction || (await this.sequelize.transaction());
+
+    try {
+      // 1. Buscar e bloquear o Item de Estoque (LOCK.UPDATE)
+      const produto = (await ItemEstoque.findByPk(id_produto, {
+        lock: transaction.LOCK.UPDATE,
+        transaction,
+      })) as ItemEstoqueModel | null;
+
+      if (!produto) {
+        throw new Error(`Produto ID ${id_produto} não encontrado.`);
+      } // Usando DecimalCtor para cálculos precisos (R3)
+
+      const qteBaixa = new DecimalCtor(quantidade);
+      const estoqueAnterior = new DecimalCtor(produto.estoque_atual);
+      const cmpAtual = new DecimalCtor(produto.preco_custo_unitario); // 2. Validação R2: Saldo não Negativo (Bloqueio Negativo)
+
+      const novoEstoque = estoqueAnterior.minus(qteBaixa);
+
+      if (novoEstoque.isNegative()) {
+        throw new Error(
+          `R2: Saldo insuficiente. Estoque disponível: ${estoqueAnterior.toFixed(
+            3
+          )} ${produto.unidade_medida}. Necessário: ${qteBaixa.toFixed(3)}.`
+        );
+      } // 3. Custo da Saída (CMV - R3)
+
+      const custoSaida = qteBaixa.times(cmpAtual); // 4. Registro do Movimento (Auditoria)
+
+      const movimentoData: EstoqueRegistroMovimentoCreationAttributes = {
+        id_produto,
+        tipo_movimento: "SAIDA",
+        quantidade: qteBaixa.toNumber(),
+        preco_custo_unitario_momento: cmpAtual.toNumber(),
+        custo_total_movimento: custoSaida.toNumber(),
+        estoque_anterior: estoqueAnterior.toNumber(),
+        estoque_atual: novoEstoque.toNumber(),
+        referencia_origem,
+        colaborador_id,
+        observacoes: `${tipo_movimento}: ${referencia_origem}`,
+      };
+      await EstoqueRegistroMovimento.create(movimentoData, { transaction }); // 5. Atualização do Item de Estoque
+
+      await produto.update(
+        {
+          estoque_atual: novoEstoque.toNumber(),
+        },
+        { transaction }
+      ); // 6. Commit (apenas se a transação for interna)
+
+      if (!externalTransaction) {
+        await transaction.commit();
+      }
+
+      return {
+        produto,
+        custo_saida: custoSaida.toNumber(),
+      };
+    } catch (error) {
+      if (!externalTransaction) {
+        await transaction.rollback();
+      }
+      throw error;
+    }
+  }  // ---------------------------------------------------- // --- MÉTODO ORQUESTRADOR PARA VENDAS/PRODUÇÃO (R5) --- // ----------------------------------------------------
+  /**
+   * Método orquestrador que realiza a baixa de múltiplos itens (Venda/Produção)
+   * e retorna o CMV total da operação, usando a transação fornecida.
+   * Este método é o ponto de integração para VendaComandaService.
+   *
+   * @param itensParaBaixa Lista de { id_produto, quantidade_vendida }
+   * @param colaborador_id ID do colaborador responsável.
+   * @param referencia_origem Ex: "VENDA_COMANDA_123"
+   * @param transaction Transação externa obrigatória (R5).
+   * @returns O CMV (Custo da Mercadoria Vendida) total da operação.
+   */
+
+  public async darBaixaVenda(
+    itensParaBaixa: {
+      id_produto: number;
+      quantidade_vendida: number;
+    }[],
+    colaborador_id: number,
+    referencia_origem: string,
+    transaction: Transaction // Exige transação externa (R5)
+  ): Promise<number> {
+    // Usando DecimalCtor para acumular o custo total (CMV)
+    let cmvTotal = new DecimalCtor(0); // Processar cada item na mesma transação
+
+    for (const item of itensParaBaixa) {
+      const saidaData: SaidaEstoqueData = {
+        id_produto: item.id_produto,
+        quantidade: item.quantidade_vendida,
+        colaborador_id,
+        tipo_movimento: "VENDA",
+        referencia_origem,
+      }; // Reutiliza a lógica de saidaEstoque, passando a transação externa
+
+      const resultado = await this.saidaEstoque(saidaData, transaction);
+      cmvTotal = cmvTotal.plus(resultado.custo_saida);
+    }
+
+    return cmvTotal.toNumber();
+  }
+}
+
+
+
+========================================
+ARQUIVO: src\services\EstoqueService.ts
+========================================
+
+// src/services/EstoqueService.ts (Novo Serviço Compartilhado)
+
+import { Transaction } from "sequelize";
+import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque";
+import EstoqueRegistroMovimento, {
+  EstoqueRegistroMovimentoCreationAttributes,
+} from "../models/EstoqueRegistroMovimento";
+import { Op } from "sequelize";
+
+// Interface de tipagem para reutilização
+export interface MovimentoPayload {
+  id_produto: number;
+  tipo_movimento:
+    | "ENTRADA"
+    | "SAIDA"
+    | "AJUSTE_SOBRA"
+    | "AJUSTE_PERDA"
+    | "PRODUCAO_ENTRADA"; // PROD_ENTRADA para clareza
+  quantidade: number;
+  preco_custo_unitario_momento?: number; // Opcional, usado apenas na ENTRADA
+  observacoes?: string;
+  referencia_origem?: string | null;
+}
+
+export class EstoqueService {
+  /**
+   * @param produto O Model Produto (ItemEstoque) já carregado.
+   * @param qtd_entrada A quantidade que está entrando.
+   * @param novo_custo_unitario O preço de compra/produção unitário do item (se for ENTRADA).
+   * @param observacoes Observações para o log.
+   * @param transaction Transação atual.
+   * @returns O novo ItemEstoqueModel com os dados atualizados.
+   */
+  public async entradaEstoque(
+    produto: ItemEstoqueModel,
+    qtd_entrada: number,
+    novo_custo_unitario: number, // Usado para recalcular o CMV
+    observacoes: string,
+    referencia_origem: string | null,
+    transaction: Transaction
+  ): Promise<ItemEstoqueModel> {
+    const estoque_anterior = parseFloat(
+      produto.estoque_atual as unknown as string
+    );
+    const custo_medio_unitario_anterior = parseFloat(
+      produto.preco_custo_unitario as unknown as string
+    );
+    const qtd_total_anterior = estoque_anterior;
+
+    // 1. Recálculo do Custo Médio Ponderado (CMP)
+    // Custo Total Anterior = Qtd Antiga * Custo Médio Antigo
+    const custo_total_anterior =
+      qtd_total_anterior * custo_medio_unitario_anterior;
+
+    // Custo Total da Nova Entrada = Qtd Nova * Custo Unitário Novo
+    const custo_entrada = qtd_entrada * novo_custo_unitario;
+
+    // Novo Custo Total e Nova Quantidade
+    const novo_custo_total = custo_total_anterior + custo_entrada;
+    const nova_quantidade = qtd_total_anterior + qtd_entrada;
+
+    // Novo Custo Médio Ponderado (CMP)
+    let novo_custo_medio_unitario = 0;
+    if (nova_quantidade > 0) {
+      novo_custo_medio_unitario = novo_custo_total / nova_quantidade;
+    }
+
+    const novo_estoque = nova_quantidade;
+    const custo_movimento = novo_custo_unitario; // Custo do item que está entrando
+
+    // 2. Atualiza o Produto (ItemEstoque)
+    await produto.update(
+      {
+        estoque_atual: novo_estoque,
+        preco_custo_unitario: novo_custo_medio_unitario, // O CMP foi alterado
+      },
+      { transaction }
+    );
+
+    // 3. Registra o Movimento de Estoque (Audit Log)
+    const registroMovimento: EstoqueRegistroMovimentoCreationAttributes = {
+      id_produto: produto.id_produto,
+      tipo_movimento: "ENTRADA", // Tipo de movimento de estoque
+      quantidade: qtd_entrada,
+      preco_custo_unitario_momento: custo_movimento,
+      custo_total_movimento: custo_entrada, // Custo da ENTRADA
+      estoque_anterior: estoque_anterior,
+      estoque_atual: novo_estoque,
+      observacoes: observacoes,
+      referencia_origem: referencia_origem,
+    };
+
+    await EstoqueRegistroMovimento.create(registroMovimento, { transaction });
+
+    return produto;
+  }
+
+  /**
+   * @param produto O Model Produto (ItemEstoque) já carregado.
+   * @param qtd_saida A quantidade que está saindo.
+   * @param observacoes Observações para o log.
+   * @param transaction Transação atual.
+   * @returns O novo ItemEstoqueModel com os dados atualizados.
+   */
+  public async saidaEstoque(
+    produto: ItemEstoqueModel,
+    qtd_saida: number,
+    observacoes: string,
+    referencia_origem: string | null,
+    transaction: Transaction
+  ): Promise<{ produto: ItemEstoqueModel; custo_saida: number }> {
+    const estoque_anterior = parseFloat(
+      produto.estoque_atual as unknown as string
+    );
+    const custo_medio_unitario = parseFloat(
+      produto.preco_custo_unitario as unknown as string
+    );
+
+    if (estoque_anterior < qtd_saida) {
+      throw new Error(
+        `Estoque insuficiente para o produto ${produto.nome}. Disponível: ${estoque_anterior}, Requerido: ${qtd_saida}.`
+      );
+    }
+
+    // 1. Cálculo da Saída
+    // A saída utiliza o Custo Médio Ponderado atual (FIFO/LIFO não implementados)
+    const custo_saida = qtd_saida * custo_medio_unitario;
+    const novo_estoque = estoque_anterior - qtd_saida;
+
+    // 2. Atualiza o Produto (ItemEstoque)
+    await produto.update(
+      {
+        estoque_atual: novo_estoque,
+        // O preco_custo_unitario (CMP) não muda na SAÍDA
+      },
+      { transaction }
+    );
+
+    // 3. Registra o Movimento de Estoque (Audit Log)
+    const registroMovimento: EstoqueRegistroMovimentoCreationAttributes = {
+      id_produto: produto.id_produto,
+      tipo_movimento: "SAIDA", // Tipo de movimento de estoque
+      quantidade: qtd_saida,
+      preco_custo_unitario_momento: custo_medio_unitario,
+      custo_total_movimento: custo_saida, // Custo da SAÍDA (CMV)
+      estoque_anterior: estoque_anterior,
+      estoque_atual: novo_estoque,
+      observacoes: observacoes,
+      referencia_origem: referencia_origem,
+    };
+
+    await EstoqueRegistroMovimento.create(registroMovimento, { transaction });
+
+    return { produto, custo_saida };
+  }
+}
+
+
+######################## FIM DO DOMÍNIO ESTOQUE ########################

@@ -1,0 +1,107 @@
+1. Módulo Estoque e Fichas Técnicas (Concluído: 80%)
+Este módulo é a base de dados do ERP.
+
+Status,Funcionalidade,Implementação Node.js,Base no Documento
+✅ Concluído, Modelo PRODUTOS,"Criado (Produto.js) com todos os campos (estoque_atual, preco_custo_unitario, is_vendavel, is_pre_pronto). ",
+✅ Concluído, CRUD Básico,Endpoints POST /produtos (Create) e GET /produtos (Read/Listar) funcionando. ,
+✅ Concluído, Atualização de Metadados,Endpoint PUT /produtos/:id funcionando.,
+✅ Concluído, Entrada de Estoque/Compra,Endpoint PATCH /produtos/:id/entrada com lógica de Transação e Cálculo de Custo Médio Ponderado (CMV). ,
+✅ Concluído, Modelo FICHA_TECNICA,Modelo criado (FichaTecnica.js) e relacionado a PRODUTOS (M:N self-reference). ,
+✅ Concluído, Cadastro de Ficha Técnica,Controller (FichaTecnicaController.js) e Rota (POST /fichatecnica/pai/:id) criados e prontos para teste. ,
+✅ Concluído, Saída de Estoque/Consumo,Finalizar o método PATCH /produtos/:id/saida para registrar consumo e calcular o Custo de Saída. ,
+✅ Próximo, CRUD Ficha Técnica,"Implementar GET /fichatecnica/pai/:id (listar composição), PUT e DELETE nos itens da ficha. ",
+1.1✅ Concluído, módulo de auditoria cega do flv, pré-prontos e insumos gerais
+
+
+2. Módulo Compras e Produção (Próximas Prioridades)
+O foco é em automatizar pedidos e rastrear a produção de Pré-Prontos .
+
+Status,Funcionalidade,Próxima Ação,Base no Documento
+✅ Concluído,Modelos,"Criar FORNECEDORES, PEDIDOS_COMPRA e ENTRADA_INSUMOS. ",
+✅ Concluído,Alerta de Estoque Mínimo,Lógica no Controller que gera uma Lista de Compras quando estoque_atual < estoque_minimo. ,
+✅ Concluído,Validação de Compras,Implementar o status status_aprovacao e a rota para Validação do Gestor. ,
+✅ Concluído,Produção de Pré-Prontos,Criar modelo REGISTRO_PRODUCAO e lógica para abater insumos do estoque e adicionar o Pré-Pronto. ,
+✅ Concluído,CRUD Ficha Técnica (Update/Delete),Implementar PUT e DELETE nos itens da ficha.,TRANSFERIDO: Será resolvido junto ao Módulo Produção para otimizar o fluxo de trabalho.
+
+3. Módulo Ponto de Venda (PDV) (Prioridade Final de Backend)
+O PDV depende que o Estoque e a Ficha Técnica estejam prontos para fazer o Controle de Baixa (CMV).
+
+Status,Funcionalidade,Próxima Ação,Base no Documento
+✅ Pendente,Modelos,"Criar MESAS, VENDAS, ITENS_VENDA e seus relacionamentos . ",
+✅ Concluído,Venda e Baixa de Estoque,Lógica de Transação para registrar a venda e abater os insumos do estoque_atual. 
+✅ Concluído	Status de Produção	
+Implementar a atualização do status da produção (Coletar dados para o BI).
+
+4. Módulo Recursos Humanos (RH) (Independente)
+Este módulo pode ser desenvolvido paralelamente, pois depende de modelos próprios.
+
+Status,Funcionalidade,Próxima Ação,Base no Documento
+✅ Concluído,Modelos RH,Criar COLABORADORES e ESCALAS. ,
+✅ Concluído,Gestão de Escalas,Implementar o endpoint para registro e aprovação de escalas (versao_escala). ,
+✅ Concluído,Auto-Scheduling,Lógica (algoritmo) para gerar escala preliminar baseada no Previsão de Demanda (BI) e Restrições.
+
+5. Módulo Financeiro e Contábil (Intermediário)
+O módulo Financeiro depende dos dados de Vendas (Receitas) e Compras (Despesas) para o FLUXO_CAIXA e DRE.
+
+Status,Funcionalidade,Próxima Ação,Base no Documento
+✅ Concluído,Modelos Financeiro,Criar FLUXO_CAIXA (com tipo e centro_custo). ,
+✅ Concluído,Geração de Lançamentos,Funções para criar lançamentos automáticos a partir de VENDAS e ENTRADA_INSUMOS.,
+
+6. Business Intelligence (BI) (Fase Final)
+O BI não é um módulo de CRUD, mas a camada de endpoints que agrega os dados de todos os módulos. Ele só pode ser construído quando os módulos base estiverem concluídos.
+📈 Business Intelligence (BI) - KPIs Essenciais
+O BI é o painel de controle, apresentando dados para decisões focadas em eficiência.
+
+Área	KPI (Indicador Chave de Performance)	Objetivo da Decisão
+Rentabilidade	CMV por Prato e Total (%)	Precificação: Ajustar preços ou otimizar fichas técnicas.
+Rentabilidade	Índice de Desperdício (Food Waste)	Controle Operacional: Identificar falhas na produção, estoque e compras.
+Vendas	Ticket Médio por Cliente e por Período	Marketing/Treinamento: Estratégias de upselling.
+Vendas	Curva ABC de Vendas (Pratos Lucrativos vs. Populares)	Cardápio: Decidir quais pratos promover ou descontinuar.
+Operacional	Acuracidade do Estoque (%)	Controle: Avaliar a eficiência do operador de estoque.
+Operacional	Custo com Mão de Obra (Labor Cost) (%)	Escala: Ajustar a escala de funcionários para otimizar custos em baixa demanda.
+CRM	Taxa de Recorrência de Clientes (%)	Fidelização: Medir a eficácia das campanhas e da experiência do cliente.
+Qualidade/RH	Conformidade na Produção (Perdas por Colaborador/Motivo)	Treinamento: Rastrear a qualidade de insumos (Fornecedor) e treinar colaboradores.
+Status,KPI Essencial,Próxima Ação,Base no Documento
+⬜ Pendente,CMV por Prato/Total,Criar endpoints que calculam o CMV a partir de VENDAS e FICHA_TECNICA. ,
+⬜ Pendente,Índice de Desperdício,Criar endpoints que calculam perdas registradas em AUDITORIA e REGISTRO_PERDAS. ,
+⬜ Pendente,Acuracidade do Estoque,Criar endpoints que comparam quantidade_cega vs. quantidade_sistema. ,
+
+Essa é uma excelente pergunta e toca em um ponto crucial da arquitetura de um ERP de restaurante!
+
+A resposta curta é: **Sim, você já tem essa funcionalidade embutida e otimizada!**
+
+Você não precisa de um novo modelo `Categoria` ou `EstoqueCategoria` no banco de dados, porque a sua tabela `PRODUTOS` (modelo `Produto.js`) já contém os campos que definem a natureza de cada item para fins de gestão e menu:
+
+### ⚙️ Como o `Produto.js` Já Gerencia as Categorias
+
+Seu modelo `Produto.js` possui três campos booleanos que funcionam como as categorias de estoque e venda:
+
+| Campo Booleano | Explicação Funcional | Uso na Gestão e Menu |
+| :--- | :--- | :--- |
+| `is_vendavel` | Se for `TRUE`, o item pode ser vendido ao cliente (Ex: Pratos Finais, Bebidas). | **Filtro para o Menu Digital/PDV.** O *frontend* (o menu) só precisa listar os produtos onde `is_vendavel = TRUE`. |
+| `is_pre_pronto` | Se for `TRUE`, o item é uma preparação intermediária (Ex: Molhos, Massa de Pizza, Caldo Base). | **Filtro para a Produção/Ficha Técnica.** Usado para guiar a produção interna, mas não aparece no menu principal. |
+| **(Omissão)** | Se ambos forem `FALSE` (e o item for consumível), ele é um **Insumo** (Ex: Farinha, Leite, Picanha). | **Filtro para o Módulo Compras e Contagem Cega.** Usado para inventário, compras e cálculo de CMV. |
+
+### 🛠️ Como o Gemini Deve Usar Isso (Engenharia de Prompt)
+
+Para o seu fluxo de trabalho (Design-to-Code), você deve orientar o Gemini a usar esses campos como filtros.
+
+| Objetivo | Prompt para o Gemini |
+| :--- | :--- |
+| **Geração do Menu (Frontend)** | "Gere um componente React/HTML para a tela do Menu. A requisição GET deve filtrar a API para mostrar apenas produtos onde o campo `is_vendavel` é TRUE." |
+| **Listagem de Insumos (Backend)** | "No `ProdutoController.js`, crie um método `getInsumos` que liste todos os produtos onde `is_vendavel` é FALSE e `is_pre_pronto` é FALSE." |
+| **Relatório de Produção (Backend)** | "No `FichaTecnicaController.js`, crie um endpoint para listar todos os produtos onde `is_pre_pronto` é TRUE, pois são os itens que a Cozinha deve pré-preparar hoje." |
+
+**Vantagem:** Essa abordagem evita a complexidade de adicionar chaves estrangeiras (`FK`) e tabelas de categorias extras, tornando o sistema mais rápido, o banco de dados mais simples e o raciocínio da IA mais direto.
+
+---
+
+## ➡️ Próxima Ação: Priorizando a Estabilidade (P2)
+
+Agora que resolvemos a questão da categorização e o Módulo Auditoria Cega está pronto, vamos retomar a próxima prioridade crítica:
+
+**P2: Revisar e finalizar a Saída de Estoque/Consumo** (`saidaEstoque` no `ProdutoController.js`).
+
+Garantir que essa função esteja perfeita é vital, pois ela é o motor do seu **CMV (Custo de Mercadoria Vendida)**. Um erro aqui contamina todos os relatórios financeiros.
+
+**Vamos revisar e validar o método `saidaEstoque` no `ProdutoController.js` para garantir a máxima segurança e precisão do CMV?**

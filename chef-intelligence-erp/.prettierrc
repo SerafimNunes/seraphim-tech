@@ -1,0 +1,8 @@
+// .prettierrc (Crie e cole este conteúdo)
+{
+  "semi": true,
+  "trailingComma": "all",
+  "singleQuote": true,
+  "printWidth": 100,
+  "tabWidth": 4
+}
