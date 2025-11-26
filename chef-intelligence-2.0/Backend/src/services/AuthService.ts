@@ -1,14 +1,24 @@
+// src/services/AuthService.ts
+
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Op, DataTypes } from "sequelize";
 
 import Usuario, { UsuarioModel } from "../models/Usuario";
-import Cargo from "../models/Cargo";
+import Cargo, { CargoModel } from "../models/Cargo";
 import Permissao from "../models/Permissao";
 
 // Interface para os dados de login recebidos
 interface LoginPayload {
-  email: string;
+  loginIdentifier: string;
   senha_hash: string;
+}
+
+// O tipo de retorno do Login para o Controller
+export interface LoginResult {
+  token?: string;
+  usuario: UsuarioModel;
+  requiresSetup?: boolean;
 }
 
 // O payload do token DEVE refletir o payload do authMiddleware (R12)
@@ -18,16 +28,64 @@ export interface JwtPayload {
   nome_cargo: string;
   unidade_id: number;
   permissoes: string[]; // 🔑 CAMPO CRÍTICO para o RBAC (R12)
+  primeiro_acesso: boolean;
+}
+
+// 🔑 CORREÇÃO R1: Interface de Projeção para o resultado do SELECT de Permissões
+interface PermissaoProjection {
+  nome_permissao: string;
 }
 
 export class AuthService {
-  public async login(
-    credentials: LoginPayload
-  ): Promise<{ token: string; usuario: UsuarioModel }> {
-    const { email, senha_hash } = credentials; // 🔑 CORREÇÃO R12: Inclui Cargo e Permissões na busca de login // O 'include' aninhado resolve o relacionamento N:M entre Cargo e Permissao
+  public async createTemporarySuperUser(
+    unidadeId: number
+  ): Promise<UsuarioModel> {
+    const TEMP_EMAIL = "admin";
+    const TEMP_SENHA = "admin";
 
-    const usuario = await Usuario.findOne({
-      where: { email: email },
+    let superAdminCargo: CargoModel | null = await (Cargo as any).findOne({
+      where: { nome_cargo: "SUPER_ADMIN" },
+    });
+
+    if (!superAdminCargo) {
+      superAdminCargo = await (Cargo as any).create({
+        unidade_id: unidadeId,
+        nome_cargo: "SUPER_ADMIN",
+        is_super_admin: true, // 🚨 Flag R12
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(TEMP_SENHA, 10);
+
+    const temporaryUser = await (Usuario as any).create({
+      unidade_id: unidadeId,
+      colaborador_id: 1,
+      cargo_id: superAdminCargo!.id_cargo,
+      email: TEMP_EMAIL,
+      login: TEMP_EMAIL,
+      senha_hash: passwordHash, // 🔑 PADRONIZADO
+      ativo: true,
+      primeiro_acesso_admin: true,
+    });
+
+    return temporaryUser as UsuarioModel;
+  }
+  public async login(credentials: LoginPayload): Promise<LoginResult> {
+    // 🔑 CORREÇÃO CRÍTICA: Usa 'loginIdentifier' para busca
+    const { loginIdentifier, senha_hash: senha } = credentials; // 🚨 DEBUG 1: Mostra o que está sendo buscado
+
+    console.log(
+      `[AUTH DEBUG] Tentativa de login com identificador: ${loginIdentifier}`
+    );
+
+    const usuario: UsuarioModel | null = await (Usuario.findOne({
+      where: {
+        [Op.or]: [
+          // Permite login por 'login' OU 'email'
+          { login: loginIdentifier },
+          { email: loginIdentifier },
+        ],
+      },
       include: [
         {
           model: Cargo,
@@ -35,44 +93,107 @@ export class AuthService {
           include: [
             {
               model: Permissao,
-              as: "permissoes", // Traz apenas o nome da permissão para o payload do token ser mais leve
+              as: "permissoes",
               attributes: ["nome_permissao"],
             },
           ],
         },
       ],
-    });
+    }) as Promise<UsuarioModel | null>); // 🚨 DEBUG 2: Confirma se o usuário foi encontrado no banco
 
     if (!usuario || !usuario.cargo) {
+      console.log(
+        "[AUTH DEBUG] FALHA: Usuário não encontrado no DB ou Cargo ausente."
+      );
       throw new Error("Usuário ou senha inválidos.");
-    } // 🔑 Validação de Senha (CRÍTICO em produção) // A linha a seguir deve ser descomentada no ambiente final para validação real // const senhaValida = await bcrypt.compare(senha_hash, usuario.senha_hash); // if (!senhaValida) { //    throw new Error("Usuário ou senha inválidos."); // } // Nota: O Cast 'as any' é um workaround comum do Sequelize para acesso a includes.
+    } // Se o usuário for encontrado, exibe o hash
 
-    const token = this.gerarToken(usuario as any); // Retorna o objeto Usuario completo com os dados de Cargo/Permissões
+    console.log(
+      `[AUTH DEBUG] Usuário encontrado. Email: ${
+        usuario.email
+      }. Hash no DB: ${usuario.senha_hash.substring(0, 10)}...`
+    );
 
-    return { token, usuario: usuario as any };
+    const senhaValida = await bcrypt.compare(senha, usuario.senha_hash); // 🚨 DEBUG 3: Confirma a validação final da senha
+
+    if (!senhaValida) {
+      console.log(
+        "[AUTH DEBUG] FALHA: Senha digitada não confere com o Hash do DB."
+      );
+      throw new Error("Usuário ou senha inválidos.");
+    }
+
+    console.log("[AUTH DEBUG] SUCESSO: Autenticação concluída."); // 🔑 CORREÇÃO CRÍTICA: Converte o modelo Sequelize para um objeto puro antes de retornar. // Isso garante que as propriedades, especialmente 'id_usuario', sejam expostas corretamente.
+
+    const usuarioPuro = usuario.get({ plain: true }) as UsuarioModel;
+
+    if (usuarioPuro.primeiro_acesso_admin === true) {
+      // Usa usuarioPuro (objeto JavaScript simples) para o JSON de resposta
+      return {
+        usuario: usuarioPuro,
+        requiresSetup: true,
+      };
+    } // Gera o token usando o modelo Sequelize original (que tem as associações)
+
+    const token = this.gerarToken(usuario); // Retorna o token e o objeto puro
+
+    return { token, usuario: usuarioPuro };
   }
+  private gerarToken(usuario: UsuarioModel): string {
+    // ... (restante da função gerarToken e setupSuperUser - sem alterações de debug)
 
-  private gerarToken(usuario: any): string {
     const secret = process.env.JWT_SECRET || "seu-segredo-super-secreto";
     if (secret === "seu-segredo-super-secreto") {
       console.warn(
         "ALERTA: Usando chave JWT padrão. Defina JWT_SECRET em .env"
       );
-    } // 🔑 CORREÇÃO R12: Extrai o array de permissões // Mapeia o array de objetos 'Permissao' para um array de strings
-    const permissoes: string[] = usuario.cargo?.permissoes
-      ? usuario.cargo.permissoes.map(
-          (p: { nome_permissao: string }) => p.nome_permissao
-        )
+    }
+
+    const cargo = usuario.cargo!;
+
+    let permissoes: string[] = cargo.permissoes
+      ? (cargo.permissoes as any[]).map((p) => p.nome_permissao)
       : [];
+
+    if (cargo.is_super_admin === true) {
+      permissoes = ["GLOBAL_ACCESS"];
+    }
 
     const payload: JwtPayload = {
       id_usuario: usuario.id_usuario,
-      id_cargo: usuario.id_cargo, // ID do cargo direto do modelo Usuario
-      nome_cargo: usuario.cargo.nome_cargo,
+      id_cargo: cargo.id_cargo,
+      nome_cargo: cargo.nome_cargo,
       unidade_id: usuario.unidade_id,
-      permissoes: permissoes, // CAMPO ESSENCIAL ADICIONADO (R12)
-    }; // Token válido por 8 horas (R12 - Segurança)
+      permissoes: permissoes,
+      primeiro_acesso: usuario.primeiro_acesso_admin || false,
+    };
 
     return jwt.sign(payload, secret, { expiresIn: "8h" });
+  }
+  public async setupSuperUser(
+    usuarioId: number,
+    novoEmail: string,
+    novaSenha: string
+  ): Promise<UsuarioModel> {
+    const adminUser = await Usuario.findByPk(usuarioId);
+
+    if (!adminUser) {
+      throw new Error("Usuário não encontrado.");
+    }
+
+    if (adminUser.primeiro_acesso_admin === false) {
+      throw new Error("Configuração de Superusuário já concluída.");
+    }
+
+    const novaSenhaHash = await bcrypt.hash(novaSenha, 10);
+
+    await adminUser.update({
+      email: novoEmail,
+      login: novoEmail,
+      senha_hash: novaSenhaHash,
+      primeiro_acesso_admin: false,
+    });
+
+    return adminUser as UsuarioModel;
   }
 }

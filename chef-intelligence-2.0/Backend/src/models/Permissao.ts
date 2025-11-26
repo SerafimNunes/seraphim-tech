@@ -1,32 +1,35 @@
 // src/models/Permissao.ts
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
+
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import CargoPermissao from "./CargoPermissao"; // Importa o modelo de junção
 
 export interface PermissaoAttributes {
   id_permissao: number;
-  chave: string;
+  nome_permissao: string; // ⬅️ CORREÇÃO: Renomeado de 'chave' para 'nome_permissao'
   descricao?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface PermissaoCreationAttributes
-  extends Optional<PermissaoAttributes, 'id_permissao'> {}
+  extends Optional<PermissaoAttributes, "id_permissao"> {}
 
 export interface PermissaoModel
   extends Model<PermissaoAttributes, PermissaoCreationAttributes>,
     PermissaoAttributes {}
 
 const Permissao = connection.define<PermissaoModel>(
-  'Permissao',
+  "Permissao",
   {
     id_permissao: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
     },
-    chave: {
+    nome_permissao: {
+      // ⬅️ CORREÇÃO: Coluna renomeada
       type: DataTypes.STRING(150),
       allowNull: false,
       unique: true,
@@ -37,21 +40,21 @@ const Permissao = connection.define<PermissaoModel>(
     },
   },
   {
-    tableName: 'PERMISSOES',
+    tableName: "PERMISSOES",
     sequelize: connection,
     timestamps: true,
-    modelName: 'Permissao',
-  } as any,
+    modelName: "Permissao",
+  } as any
 );
 
 (Permissao as any).associate = (models: IModelFactory) => {
   if (!models) return;
-  if (models.Cargo) {
+  if (models.Cargo && models.CargoPermissao) {
     Permissao.belongsToMany(models.Cargo as any, {
-      through: 'CARGO_PERMISSOES',
-      foreignKey: 'permissao_id',
-      otherKey: 'cargo_id',
-      as: 'cargos',
+      through: models.CargoPermissao as any,
+      foreignKey: "permissao_id",
+      otherKey: "cargo_id",
+      as: "cargos",
     });
   }
 };

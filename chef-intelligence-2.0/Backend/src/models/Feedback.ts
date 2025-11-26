@@ -1,8 +1,8 @@
 // src/models/Feedback.ts
 import { DataTypes, Model, Optional } from "sequelize";
 import { connection } from "../config/sequelize";
-import { IModelFactory } from "@config/types";
-import { ResolvedModelMap } from '../config/associations';
+import { IModelFactory } from "../config/types";
+// import { ResolvedModelMap } from '../config/associations'; // 🚨 REMOVIDO para usar IModelFactory
 
 export interface FeedbackAttributes {
   id_feedback: number;
@@ -10,8 +10,7 @@ export interface FeedbackAttributes {
   colaborador_id: number; // Colaborador (vendedor/atendente)
   nps: number; // 0 a 10
   comentario: string;
-  data_feedback: Date;
-  // Rastreabilidade (PDCA):
+  data_feedback: Date; // Rastreabilidade (PDCA):
   status_investigacao: "PENDENTE" | "INVESTIGANDO" | "CONCLUIDO";
   causa_raiz_identificada?: string | null;
 }
@@ -21,7 +20,7 @@ type FeedbackCreationAttributes = Optional<
   "id_feedback" | "status_investigacao" | "data_feedback"
 >;
 
-export default class Feedback
+class Feedback
   extends Model<FeedbackAttributes, FeedbackCreationAttributes>
   implements FeedbackAttributes
 {
@@ -45,12 +44,12 @@ Feedback.init(
     venda_comanda_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: { model: "VendaComandas", key: "id_comanda" },
+      references: { model: "VENDAS", key: "id_venda" },
     },
     colaborador_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: { model: "Colaboradores", key: "id_colaborador" },
+      references: { model: "COLABORADORES", key: "id_colaborador" },
     },
     nps: {
       type: DataTypes.INTEGER,
@@ -77,18 +76,27 @@ Feedback.init(
   },
   {
     sequelize: connection,
-    tableName: "FeedbackClientes",
+    tableName: "FEEDBACKCLIENTES",
     underscored: true,
   }
 );
 
-(Feedback as any).associate = function (models: ResolvedModelMap) {
-  Feedback.belongsTo(models.VendaComanda, {
-    foreignKey: "venda_comanda_id",
-    as: "venda",
-  });
-  Feedback.belongsTo(models.Colaborador, {
-    foreignKey: "colaborador_id",
-    as: "colaborador",
-  });
+// 🚨 CORREÇÃO: Uso de IModelFactory e adição de verificações e casting (as any)
+(Feedback as any).associate = function (models: IModelFactory) {
+  // Associação 1: Feedback pertence a VendaComanda
+  if (models.VendaComanda) {
+    Feedback.belongsTo(models.VendaComanda as any, {
+      foreignKey: "venda_comanda_id",
+      as: "venda",
+    });
+  } // Associação 2: Feedback pertence a Colaborador
+
+  if (models.Colaborador) {
+    Feedback.belongsTo(models.Colaborador as any, {
+      foreignKey: "colaborador_id",
+      as: "colaborador",
+    });
+  }
 };
+
+export default Feedback;

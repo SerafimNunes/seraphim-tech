@@ -1,14 +1,16 @@
-import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
-import { ResolvedModelMap } from '../config/associations';
-import { ItemEstoqueModel } from './ItemEstoque'; // Depende de ItemEstoque
-import Unidade from './Unidade'; // 🔑 Importa Unidade para associação (R4)
+// src/models/FichaTecnica.ts
+
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { ResolvedModelMap } from "../config/associations";
+import { ItemEstoqueModel } from "./ItemEstoque"; // Depende de ItemEstoque
+import Unidade from "./Unidade"; // 🔑 Importa Unidade para associação (R4)
 
 // R1. Interface para Atributos
 export interface FichaTecnicaAttributes {
   id_ficha_tecnica: number;
-  unidade_id: number; // 🔑 R4: Adicionada a chave de unidade
+  unidade_id: number; // 🔑 R4: Chave de unidade
   id_produto_pai: number;
   id_produto_filho: number;
   quantidade_necessaria: number; // DECIMAL(10, 3)
@@ -16,7 +18,7 @@ export interface FichaTecnicaAttributes {
 
 // R2. Interface para Criação (id_ficha_tecnica é opcional)
 export interface FichaTecnicaCreationAttributes
-  extends Optional<FichaTecnicaAttributes, 'id_ficha_tecnica'> {}
+  extends Optional<FichaTecnicaAttributes, "id_ficha_tecnica"> {}
 
 // R3. Interface do Modelo (Inclui associações opcionais para tipagem)
 export interface FichaTecnicaModel
@@ -31,7 +33,7 @@ export interface FichaTecnicaModel
 // R4. Criação e Exportação do Modelo
 const FichaTecnica: ModelCtor<FichaTecnicaModel> =
   connection.define<FichaTecnicaModel>(
-    'FichaTecnica',
+    "FichaTecnica",
     {
       id_ficha_tecnica: {
         type: DataTypes.INTEGER,
@@ -42,15 +44,15 @@ const FichaTecnica: ModelCtor<FichaTecnicaModel> =
         // 🔑 R4: Coluna para isolamento
         type: DataTypes.INTEGER,
         allowNull: false,
-        references: { model: 'Unidades', key: 'id_unidade' },
+        references: { model: "UNIDADES", key: "id_unidade" },
       },
       id_produto_pai: {
         // O produto final/pré-pronto que está sendo feito
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: 'PRODUTOS', // Tabela externa de ItemEstoque
-          key: 'id_produto',
+          model: "PRODUTOS", // Tabela externa de ItemEstoque
+          key: "id_item",
         },
       },
       id_produto_filho: {
@@ -58,8 +60,8 @@ const FichaTecnica: ModelCtor<FichaTecnicaModel> =
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: 'PRODUTOS', // Tabela externa de ItemEstoque
-          key: 'id_produto',
+          model: "PRODUTOS", // Tabela externa de ItemEstoque
+          key: "id_item",
         },
       },
       quantidade_necessaria: {
@@ -69,35 +71,28 @@ const FichaTecnica: ModelCtor<FichaTecnicaModel> =
       },
     },
     {
-      tableName: 'FICHA_TECNICA',
+      tableName: "FICHA_TECNICA",
       timestamps: false, // Desativa created_at e updated_at
-      modelName: 'FichaTecnica',
-      // 🔑 R4: Garante que a combinação Produto Pai/Filho seja única por unidade
-      indexes: [
-        {
-          unique: true,
-          fields: ['unidade_id', 'id_produto_pai', 'id_produto_filho'],
-        },
-      ],
-    },
+      modelName: "FichaTecnica", // O BLOCO 'indexes' FOI REMOVIDO DAQUI // Motivo: O Sequelize estava tentando criar o índice duas vezes, causando o erro 42P07
+    }
   );
 
 // R5: Associações
 (FichaTecnica as any).associate = function (models: ResolvedModelMap) {
   // 🔑 R4: Associa com a Unidade
   FichaTecnica.belongsTo(models.Unidade, {
-    foreignKey: 'unidade_id',
-    as: 'unidade',
+    foreignKey: "unidade_id",
+    as: "unidade",
   }); // Relacionamento do "Produto Pai" (N:1 para ItemEstoque)
 
   FichaTecnica.belongsTo(models.ItemEstoque as ModelCtor<ItemEstoqueModel>, {
-    foreignKey: 'id_produto_pai',
-    as: 'produto_pai',
+    foreignKey: "id_produto_pai",
+    as: "produto_pai",
   }); // Relacionamento do "Produto Filho" (N:1 para ItemEstoque)
 
   FichaTecnica.belongsTo(models.ItemEstoque as ModelCtor<ItemEstoqueModel>, {
-    foreignKey: 'id_produto_filho',
-    as: 'produto_filho',
+    foreignKey: "id_produto_filho",
+    as: "produto_filho",
   });
 };
 

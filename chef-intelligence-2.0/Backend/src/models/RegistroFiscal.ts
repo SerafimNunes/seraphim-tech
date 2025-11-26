@@ -73,7 +73,7 @@ RegistroFiscal.init(
     unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: { model: "Unidades", key: "id_unidade" },
+      references: { model: "UNIDADES", key: "id_unidade" },
     },
     tipo_registro: {
       type: DataTypes.ENUM("ENTRADA_COMPRA", "SAIDA_VENDA", "AJUSTE"),

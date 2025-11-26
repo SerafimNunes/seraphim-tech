@@ -1,13 +1,15 @@
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
 
+// Tipagem para o status da comanda
 export type StatusComanda =
-  | 'ABERTA'
-  | 'FECHADA'
-  | 'CANCELADA'
-  | 'AGUARDANDO_PAGAMENTO';
+  | "ABERTA"
+  | "FECHADA"
+  | "CANCELADA"
+  | "AGUARDANDO_PAGAMENTO";
 
+// Atributos da Tabela
 export interface VendaComandaAttributes {
   id_venda: number;
   id_mesa: number | null;
@@ -20,23 +22,25 @@ export interface VendaComandaAttributes {
   valor_total: number;
   custo_total: number;
   metodo_pagamento: string | null;
-  unidade_id: number;
+  unidade_id: number; // Campo de segurança (Regra R4)
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+// Atributos Opcionais na Criação
 export interface VendaComandaCreationAttributes
   extends Optional<
     VendaComandaAttributes,
-    | 'id_venda'
-    | 'colaborador_id_fechamento'
-    | 'data_abertura'
-    | 'data_fechamento'
-    | 'valor_total'
-    | 'custo_total'
-    | 'metodo_pagamento'
+    | "id_venda"
+    | "colaborador_id_fechamento"
+    | "data_abertura"
+    | "data_fechamento"
+    | "valor_total"
+    | "custo_total"
+    | "metodo_pagamento"
   > {}
 
+// Definição da Classe do Modelo
 export class VendaComanda
   extends Model<VendaComandaAttributes, VendaComandaCreationAttributes>
   implements VendaComandaAttributes
@@ -58,7 +62,7 @@ export class VendaComanda
   public readonly updatedAt!: Date;
 }
 
-// 🔑 CORREÇÃO CRÍTICA: Adicionar sequelize: connection
+// Inicialização do Modelo (Definição das Colunas)
 VendaComanda.init(
   {
     id_venda: {
@@ -69,7 +73,7 @@ VendaComanda.init(
     id_mesa: {
       type: DataTypes.INTEGER,
       allowNull: true,
-      references: { model: 'MESAS', key: 'id_mesa' },
+      references: { model: "MESAS", key: "id_mesa" },
     },
     id_caixa: { type: DataTypes.INTEGER, allowNull: true },
     colaborador_id_abertura: { type: DataTypes.INTEGER, allowNull: false },
@@ -77,7 +81,7 @@ VendaComanda.init(
     status_venda: {
       type: DataTypes.STRING(30),
       allowNull: false,
-      defaultValue: 'ABERTA',
+      defaultValue: "ABERTA",
     },
     data_abertura: {
       type: DataTypes.DATE,
@@ -90,7 +94,7 @@ VendaComanda.init(
       allowNull: false,
       defaultValue: 0.0,
       get() {
-        const v = this.getDataValue('valor_total') as unknown as
+        const v = this.getDataValue("valor_total") as unknown as
           | string
           | number;
         return v === null || v === undefined ? 0 : parseFloat(String(v));
@@ -101,7 +105,7 @@ VendaComanda.init(
       allowNull: false,
       defaultValue: 0.0,
       get() {
-        const v = this.getDataValue('custo_total') as unknown as
+        const v = this.getDataValue("custo_total") as unknown as
           | string
           | number;
         return v === null || v === undefined ? 0 : parseFloat(String(v));
@@ -111,37 +115,37 @@ VendaComanda.init(
     unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      comment: 'ID da Unidade de negócio (Regra R4)',
-      references: { model: 'Unidades', key: 'id_unidade' },
+      comment: "ID da Unidade de negócio (Regra R4)",
+      references: { model: "UNIDADES", key: "id_unidade" }, // 🔑 CORREÇÃO R4: Capitalização
     },
   },
   {
-    tableName: 'VENDAS',
+    tableName: "VENDAS",
     timestamps: true,
-    modelName: 'VendaComanda',
-    // 🔑 AQUI ESTÁ A CORREÇÃO: Passando a instância de conexão do Sequelize.
+    modelName: "VendaComanda",
     sequelize: connection,
-  } as any,
+  } as any
 );
 
+// Método de Associações
 (VendaComanda as any).associate = function (models: IModelFactory) {
   if (!models) return;
   if (models.VendaItem) {
     VendaComanda.hasMany(models.VendaItem as any, {
-      foreignKey: 'id_venda',
-      as: 'itens',
+      foreignKey: "id_venda",
+      as: "itens",
     });
   }
   if (models.VendaMesa) {
     VendaComanda.belongsTo(models.VendaMesa as any, {
-      foreignKey: 'id_mesa',
-      as: 'mesa',
+      foreignKey: "id_mesa",
+      as: "mesa",
     });
   }
   if (models.Unidade) {
     VendaComanda.belongsTo(models.Unidade as any, {
-      foreignKey: 'unidade_id',
-      as: 'unidade',
+      foreignKey: "unidade_id",
+      as: "unidade",
     });
   }
 };

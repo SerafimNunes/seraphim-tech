@@ -2,7 +2,7 @@
 
 import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
 import { connection } from "../config/sequelize";
-import { IModelFactory } from "@config/types";
+import { IModelFactory } from "../config/types";
 
 // Define os atributos da tabela Unidades
 interface UnidadeAttributes {
@@ -23,7 +23,7 @@ export interface UnidadeModel
     UnidadeAttributes {}
 
 // 🔑 R6: Exportação padrão da classe do modelo (para o index.ts)
-export default class Unidade
+class Unidade
   extends Model<UnidadeAttributes, UnidadeCreationAttributes>
   implements UnidadeAttributes
 {
@@ -65,8 +65,10 @@ Unidade.init(
     },
   },
   {
+    tableName: "UNIDADES",
+    modelName: "UNIDADE",
     sequelize: connection,
-    tableName: "Unidades",
+    timestamps: true,
     underscored: true,
   }
 );
@@ -76,3 +78,5 @@ Unidade.init(
   // Unidade.hasMany(models.Usuario, { foreignKey: 'unidade_id', as: 'usuarios' });
   // Unidade.hasMany(models.ItemEstoque, { foreignKey: 'unidade_id', as: 'estoques' });
 };
+
+export default Unidade;

@@ -1,13 +1,21 @@
+// src/routes/authRouter.ts
+
 import { Router } from "express";
-// 🔑 R6: Importa a instância do Controller
 import AuthController from "../controllers/AuthController";
+import AdminSetupController from "../controllers/AdminSetupController"; // 🚨 Importe o novo Controller
 
 const authRouter = Router();
 
+// Rota pública para Login
+authRouter.post("/login", AuthController.login.bind(AuthController));
+
 /**
- * Rota pública para Login (POST /api/v1/auth/login).
- * Não requer authMiddleware (R12).
+ * 🚨 NOVA ROTA: Rota pública para Setup do Superusuário Temporário
+ * Chamada APENAS quando o Frontend recebe requiresSetup: true
  */
-authRouter.post("/login", AuthController.login.bind(AuthController)); // Vincula o 'this'
+authRouter.post(
+  "/setup-admin",
+  AdminSetupController.setupAdmin.bind(AdminSetupController)
+);
 
 export default authRouter;

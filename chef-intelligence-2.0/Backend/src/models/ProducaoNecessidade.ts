@@ -1,11 +1,11 @@
 // src/models/ProducaoNecessidade.ts
 
-import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
-import { ItemEstoqueModel } from './ItemEstoque';
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { ItemEstoqueModel } from "./ItemEstoque";
 
-type TipoNecessidade = 'PREVISAO_VENDA' | 'PEDIDO_CLIENTE' | 'ESTOQUE_MINIMO';
+type TipoNecessidade = "PREVISAO_VENDA" | "PEDIDO_CLIENTE" | "ESTOQUE_MINIMO";
 
 export interface ProducaoNecessidadeAttributes {
   id_necessidade: number;
@@ -16,16 +16,16 @@ export interface ProducaoNecessidadeAttributes {
   data_necessidade: Date;
   colaborador_id_registro: number;
   observacoes: string | null;
-  status_atendimento: 'PENDENTE' | 'PARCIAL' | 'ATENDIDA' | 'CANCELADA';
+  status_atendimento: "PENDENTE" | "PARCIAL" | "ATENDIDA" | "CANCELADA";
 }
 
 export interface ProducaoNecessidadeCreationAttributes
   extends Optional<
     ProducaoNecessidadeAttributes,
-    'id_necessidade' | 'observacoes' | 'status_atendimento'
+    "id_necessidade" | "observacoes" | "status_atendimento"
   > {}
 
-export default class ProducaoNecessidade
+class ProducaoNecessidade
   extends Model<
     ProducaoNecessidadeAttributes,
     ProducaoNecessidadeCreationAttributes
@@ -40,7 +40,7 @@ export default class ProducaoNecessidade
   public data_necessidade!: Date;
   public colaborador_id_registro!: number;
   public observacoes!: string | null;
-  public status_atendimento!: 'PENDENTE' | 'PARCIAL' | 'ATENDIDA' | 'CANCELADA';
+  public status_atendimento!: "PENDENTE" | "PARCIAL" | "ATENDIDA" | "CANCELADA";
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -65,7 +65,7 @@ ProducaoNecessidade.init(
       type: DataTypes.DECIMAL(10, 3),
       allowNull: false,
       get() {
-        return parseFloat(this.getDataValue('quantidade_necessaria') as any);
+        return parseFloat(this.getDataValue("quantidade_necessaria") as any);
       },
     },
     tipo_necessidade: {
@@ -87,23 +87,25 @@ ProducaoNecessidade.init(
     status_atendimento: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: 'PENDENTE',
+      defaultValue: "PENDENTE",
     },
   },
   {
     sequelize: connection,
-    tableName: 'PLANEJAMENTO_PRODUCAO',
-    modelName: 'ProducaoNecessidade',
+    tableName: "PLANEJAMENTO_PRODUCAO",
+    modelName: "ProducaoNecessidade",
     underscored: true,
-  },
+  }
 );
 
 (ProducaoNecessidade as any).associate = (models: IModelFactory) => {
   ProducaoNecessidade.belongsTo(
     models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
     {
-      foreignKey: 'id_produto',
-      as: 'produto',
-    },
+      foreignKey: "id_produto",
+      as: "produto",
+    }
   );
 };
+
+export default ProducaoNecessidade;

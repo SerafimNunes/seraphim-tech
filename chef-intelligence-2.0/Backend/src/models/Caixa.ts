@@ -1,10 +1,10 @@
-import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
-import { connection } from '../config/sequelize';
-import Unidade from './Unidade';
-import Colaborador from './Colaborador';
+import { DataTypes, Model, Optional, Sequelize } from "sequelize";
+import { connection } from "../config/sequelize";
+import Unidade from "./Unidade";
+import Colaborador from "./Colaborador";
 // Nota: Importações de modelos associados não são necessárias aqui, apenas no arquivo de setup (index.ts)
 
-export type StatusCaixa = 'ABERTO' | 'FECHADO';
+export type StatusCaixa = "ABERTO" | "FECHADO";
 
 export interface CaixaAttributes {
   id_caixa: number;
@@ -23,14 +23,14 @@ export interface CaixaAttributes {
 export interface CaixaCreationAttributes
   extends Optional<
     CaixaAttributes,
-    | 'id_caixa'
-    | 'data_abertura'
-    | 'colaborador_id_fechamento'
-    | 'data_fechamento'
-    | 'total_vendas'
-    | 'total_despesas'
-    | 'saldo_final_calculado'
-    | 'status_caixa'
+    | "id_caixa"
+    | "data_abertura"
+    | "colaborador_id_fechamento"
+    | "data_fechamento"
+    | "total_vendas"
+    | "total_despesas"
+    | "saldo_final_calculado"
+    | "status_caixa"
   > {}
 
 export class Caixa
@@ -65,16 +65,16 @@ export class Caixa
   public static associate(models: any) {
     // Associações BelongsTo (Corretas)
     Caixa.belongsTo(models.Unidade, {
-      foreignKey: 'unidade_id',
-      as: 'unidade',
+      foreignKey: "unidade_id",
+      as: "unidade",
     });
     Caixa.belongsTo(models.Colaborador, {
-      foreignKey: 'colaborador_id_abertura',
-      as: 'aberturaColaborador',
+      foreignKey: "colaborador_id_abertura",
+      as: "aberturaColaborador",
     });
     Caixa.belongsTo(models.Colaborador, {
-      foreignKey: 'colaborador_id_fechamento',
-      as: 'fechamentoColaborador',
+      foreignKey: "colaborador_id_fechamento",
+      as: "fechamentoColaborador",
       constraints: false, // Permite NULL se o caixa ainda não foi fechado
     }); // NOVAS ASSOCIAÇÕES (Substituindo as incorretas 'Venda' e 'Despesa')
     // ----------------------------------------------------------------------
@@ -82,18 +82,18 @@ export class Caixa
     // Verifique se estas são as chaves corretas no seu objeto 'models'!
 
     Caixa.hasMany(models.VendaMesa, {
-      foreignKey: 'caixa_id',
-      as: 'vendasMesa',
+      foreignKey: "caixa_id",
+      as: "vendasMesa",
     });
     Caixa.hasMany(models.VendaComanda, {
-      foreignKey: 'caixa_id',
-      as: 'vendasComanda',
+      foreignKey: "caixa_id",
+      as: "vendasComanda",
     }); // 2. Associações de Movimentos/Despesas: Usando o modelo 'Lancamento'
     // Assumindo que 'Lancamento' registra despesas/movimentos do caixa.
 
     Caixa.hasMany(models.Lancamento, {
-      foreignKey: 'caixa_id',
-      as: 'lancamentosCaixa',
+      foreignKey: "caixa_id",
+      as: "lancamentosCaixa",
     }); // As linhas abaixo foram removidas pois os modelos 'Venda' e 'Despesa' não existem.
     // Caixa.hasMany(models.Venda, { foreignKey: 'caixa_id', as: 'vendas' });
     // Caixa.hasMany(models.Despesa, { foreignKey: 'caixa_id', as: 'despesas' });
@@ -110,8 +110,8 @@ Caixa.init(
     unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      comment: 'ID da Unidade de negócio (Regra R4)',
-      references: { model: 'Unidades', key: 'id_unidade' },
+      comment: "ID da Unidade de negócio (Regra R4)",
+      references: { model: "UNIDADES", key: "id_unidade" },
     },
     colaborador_id_abertura: { type: DataTypes.INTEGER, allowNull: false },
     colaborador_id_fechamento: { type: DataTypes.INTEGER, allowNull: true },
@@ -127,7 +127,7 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue('saldo_inicial') as unknown as string,
+          this.getDataValue("saldo_inicial") as unknown as string
         );
       },
     },
@@ -137,7 +137,7 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue('total_vendas') as unknown as string,
+          this.getDataValue("total_vendas") as unknown as string
         );
       },
     },
@@ -147,7 +147,7 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue('total_despesas') as unknown as string,
+          this.getDataValue("total_despesas") as unknown as string
         );
       },
     },
@@ -157,22 +157,22 @@ Caixa.init(
       defaultValue: 0.0,
       get() {
         return parseFloat(
-          this.getDataValue('saldo_final_calculado') as unknown as string,
+          this.getDataValue("saldo_final_calculado") as unknown as string
         );
       },
     },
     status_caixa: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: 'ABERTO',
+      defaultValue: "ABERTO",
     },
   },
   {
-    tableName: 'CAIXAS',
+    tableName: "CAIXAS",
     sequelize: connection,
     timestamps: true,
-    modelName: 'Caixa',
-  },
+    modelName: "Caixa",
+  }
 );
 
 export default Caixa;

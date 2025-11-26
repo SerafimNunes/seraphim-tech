@@ -1,305 +1,174 @@
-import { Op, WhereOptions, ModelCtor } from "sequelize";
+import { Op, ModelCtor } from "sequelize";
+// 🔑 CORRIGIDO: Importação namespace do moment para evitar erro TS2307
+import moment from "moment";
 import {
   IModelFactory,
   StatusColaborador,
   IPerfilIdeal,
   IHistoricoPerformance,
-  NivelAcesso,
+  TurnoverAnalysisItem,
 } from "../config/types";
-import Colaborador, {
-  ColaboradorModel,
-  ColaboradorCreationAttributes,
-  ColaboradorAttributes,
-} from "../models/Colaborador"; // Tipagem
-import { CargoModel, CargoCreationAttributes } from "../models/Cargo"; // Tipagem
+import { ColaboradorModel } from "../models/Colaborador";
+import { CargoModel } from "../models/Cargo";
+import { PerfilIdealModel } from "../models/PerfilIdeal";
+import { HistoricoPerformanceModel } from "../models/HistoricoPerformance";
 
-// Usamos as interfaces de modelo (ModelCtor) e as interfaces de atributos (Model)
 export class RHService {
   private Colaborador: ModelCtor<ColaboradorModel>;
   private Cargo: ModelCtor<CargoModel>;
+  private PerfilIdeal: ModelCtor<PerfilIdealModel>;
+  private HistoricoPerformance: ModelCtor<HistoricoPerformanceModel>;
 
   constructor(models: IModelFactory) {
-    // 🔑 Injeção dos modelos (GPR-3) - Agora usando ModelCtor
     this.Colaborador = models.Colaborador as ModelCtor<ColaboradorModel>;
     this.Cargo = models.Cargo as ModelCtor<CargoModel>;
+    this.PerfilIdeal = models.PerfilIdeal as ModelCtor<PerfilIdealModel>;
+    this.HistoricoPerformance =
+      models.HistoricoPerformance as ModelCtor<HistoricoPerformanceModel>;
   }
 
   // -------------------------------------------------------------------------
-  // Métodos de Colaborador (CRUD com GPR-4)
+  // BI & ANÁLISE DE DADOS (Turnover Real - R13)
   // -------------------------------------------------------------------------
 
-  /**
-   * @method getColaboradorById
-   * @description Busca um colaborador por ID, respeitando a segregação de unidade (GPR-4).
-   */
+  public async getTurnoverAnalysis(
+    unidadeId: number,
+    ano: number
+  ): Promise<TurnoverAnalysisItem[]> {
+    const result: TurnoverAnalysisItem[] = [];
+
+    for (let mes = 0; mes < 12; mes++) {
+      const dataInicio = moment()
+        .year(ano)
+        .month(mes)
+        .startOf("month")
+        .toDate();
+      const dataFim = moment().year(ano).month(mes).endOf("month").toDate();
+
+      if (moment(dataInicio).isAfter(moment())) {
+        break;
+      }
+
+      // 🔑 CORRIGIDO: Cast para number (TS2322)
+      const admissoes = (await this.Colaborador.count({
+        where: {
+          unidade_id: unidadeId,
+          data_contratacao: { [Op.between]: [dataInicio, dataFim] },
+        },
+      })) as unknown as number;
+
+      // 🔑 CORRIGIDO: Cast para number
+      const desligamentos = (await this.Colaborador.count({
+        where: {
+          unidade_id: unidadeId,
+          data_desligamento: { [Op.between]: [dataInicio, dataFim] },
+        },
+      })) as unknown as number;
+
+      const ativosNoMes = (await this.Colaborador.count({
+        where: {
+          unidade_id: unidadeId,
+          data_contratacao: { [Op.lte]: dataFim },
+          [Op.or]: [
+            { data_desligamento: { [Op.eq]: null } },
+            { data_desligamento: { [Op.gte]: dataInicio } },
+          ],
+        },
+      })) as unknown as number;
+
+      // 🔑 CORRIGIDO: TS agora entende que são numbers (TS2365/TS2362)
+      const mediaColaboradores = ativosNoMes > 0 ? ativosNoMes : 1;
+      const taxaTurnover = parseFloat(
+        ((desligamentos / mediaColaboradores) * 100).toFixed(2)
+      );
+
+      result.push({
+        mes: mes + 1,
+        admissoes,
+        desligamentos,
+        mediaColaboradores: ativosNoMes,
+        taxaTurnover,
+      });
+    }
+
+    return result;
+  }
+
+  // -------------------------------------------------------------------------
+  // OPERACIONAL
+  // -------------------------------------------------------------------------
+
   public async getColaboradorById(
     id_colaborador: number,
     unidade_id: number
   ): Promise<ColaboradorModel | null> {
-    // GPR-5: Assincronicidade
-    return this.Colaborador.findOne({
-      where: {
-        id_colaborador,
-        unidade_id, // 🔑 GPR-4: Filtro obrigatório por unidade
-      },
-      // Inclui o Cargo (GPR-3)
-      include: [{ model: this.Cargo, as: "cargo" }],
+    return await this.Colaborador.findOne({
+      where: { id_colaborador, unidade_id },
+      include: [this.Cargo],
     });
   }
 
-  /**
-   * @method getAllColaboradores
-   * @description Retorna todos os colaboradores de uma unidade específica (GPR-4).
-   */
-  public async getAllColaboradores(
-    unidade_id: number,
-    status?: StatusColaborador,
-    nivel_acesso?: NivelAcesso
-  ): Promise<ColaboradorModel[]> {
-    const whereClause: WhereOptions = { unidade_id }; // 🔑 GPR-4: Filtro obrigatório
-
-    if (status) {
-      whereClause.Status = status;
-    }
-    if (nivel_acesso) {
-      whereClause.nivel_acesso = nivel_acesso;
-    }
-
-    // GPR-5: Assincronicidade
-    return this.Colaborador.findAll({
-      where: whereClause,
-      include: [{ model: this.Cargo, as: "cargo" }],
-      order: [["nome_completo", "ASC"]],
-    });
-  }
-
-  /**
-   * @method createColaborador
-   * @description Cria um novo colaborador.
-   * Recebe ColaboradorCreationAttributes (dados puros), não o modelo inteiro.
-   */
-  public async createColaborador(
-    data: ColaboradorCreationAttributes
-  ): Promise<ColaboradorModel> {
-    if (!data.unidade_id) {
-      throw new Error(
-        "A unidade_id é obrigatória para a criação de um colaborador."
-      );
-    }
-    // GPR-5: Assincronicidade
-    return this.Colaborador.create(data);
-  }
-
-  /**
-   * @method updateColaborador
-   * @description Atualiza dados de um colaborador, respeitando a segregação de unidade (GPR-4).
-   */
-  public async updateColaborador(
+  public async getColaboradorAtivo(
     id_colaborador: number,
-    unidade_id: number,
-    data: Partial<ColaboradorAttributes>
-  ): Promise<ColaboradorModel> {
+    unidade_id: number
+  ): Promise<ColaboradorModel | null> {
     const colaborador = await this.getColaboradorById(
       id_colaborador,
       unidade_id
     );
 
-    if (!colaborador) {
-      throw new Error(
-        `Colaborador ID ${id_colaborador} não encontrado na unidade ${unidade_id}.`
-      );
+    if (!colaborador) return null;
+
+    const statusAtual = colaborador.Status as string | StatusColaborador;
+
+    const isAtivoStatus =
+      statusAtual === StatusColaborador.ATIVO || statusAtual === "ATIVO";
+    // 🔑 CORRIGIDO: data_desligamento agora existe no model Colaborador
+    const isDesligado =
+      colaborador.data_desligamento &&
+      moment(colaborador.data_desligamento).isBefore(moment());
+
+    if (!isAtivoStatus || isDesligado) {
+      return null;
     }
 
-    await colaborador.update(data);
     return colaborador;
   }
 
-  /**
-   * @method deleteColaborador
-   * @description Realiza a exclusão lógica (Status: DESLIGADO) de um colaborador.
-   */
-  public async deleteColaborador(
-    id_colaborador: number,
-    unidade_id: number
-  ): Promise<void> {
-    const colaborador = await this.getColaboradorById(
-      id_colaborador,
-      unidade_id
-    );
-
-    if (!colaborador) {
-      throw new Error(
-        `Colaborador ID ${id_colaborador} não encontrado na unidade ${unidade_id}.`
-      );
-    }
-
-    // Exclusão Lógica (GPR-5)
-    await colaborador.update({ Status: "DESLIGADO" });
-  }
-
   // -------------------------------------------------------------------------
-  // Métodos de Cargo (CRUD com GPR-4)
+  // GESTÃO DE PERFORMANCE E PERFIL (Persistência Real)
   // -------------------------------------------------------------------------
 
-  /**
-   * @method getCargoById
-   * @description Busca um cargo por ID, respeitando a segregação de unidade (GPR-4).
-   */
-  public async getCargoById(
-    id_cargo: number,
-    unidade_id: number
-  ): Promise<CargoModel | null> {
-    return this.Cargo.findOne({
-      where: {
-        id_cargo,
-        unidade_id, // 🔑 GPR-4: Filtro obrigatório por unidade
-      },
-      include: ["permissoes"],
-    });
-  }
-
-  /**
-   * @method getAllCargos
-   * @description Retorna todos os cargos de uma unidade específica (GPR-4).
-   */
-  public async getAllCargos(unidade_id: number): Promise<CargoModel[]> {
-    return this.Cargo.findAll({
-      where: { unidade_id }, // 🔑 GPR-4: Filtro obrigatório
-      order: [["nome_cargo", "ASC"]],
-      include: ["permissoes"],
-    });
-  }
-
-  /**
-   * @method createCargo
-   * @description Cria um novo cargo.
-   * Recebe CargoCreationAttributes (dados puros), não o modelo inteiro.
-   */
-  public async createCargo(data: CargoCreationAttributes): Promise<CargoModel> {
-    if (!data.unidade_id) {
-      throw new Error("A unidade_id é obrigatória para a criação de um Cargo.");
-    }
-    return this.Cargo.create(data);
-  }
-
-  /**
-   * @method updateCargo
-   * @description Atualiza um cargo, respeitando a segregação de unidade (GPR-4).
-   */
-  public async updateCargo(
-    id_cargo: number,
-    unidade_id: number,
-    data: Partial<CargoModel>
-  ): Promise<CargoModel> {
-    const cargo = await this.getCargoById(id_cargo, unidade_id);
-
-    if (!cargo) {
-      throw new Error(
-        `Cargo ID ${id_cargo} não encontrado na unidade ${unidade_id}.`
-      );
-    }
-
-    if (data.unidade_id && data.unidade_id !== unidade_id) {
-      throw new Error(
-        "Não é permitido alterar a unidade_id de um cargo existente."
-      );
-    }
-
-    await cargo.update(data);
-    return cargo;
-  }
-
-  /**
-   * @method deleteCargo
-   * @description Exclui um cargo por ID, respeitando a unidade (GPR-4).
-   */
-  public async deleteCargo(
-    id_cargo: number,
-    unidade_id: number
-  ): Promise<void> {
-    const colaboradoresAtivos = await this.Colaborador.count({
-      where: {
-        cargo_id: id_cargo,
-        unidade_id: unidade_id, // GPR-4
-        Status: "ATIVO",
-      },
-    });
-
-    if (colaboradoresAtivos > 0) {
-      throw new Error(
-        `Não é possível excluir o Cargo ID ${id_cargo}. Há ${colaboradoresAtivos} colaboradores ativos associados a ele.`
-      );
-    }
-
-    const result = await this.Cargo.destroy({
-      where: {
-        id_cargo,
-        unidade_id, // 🔑 GPR-4: Filtro obrigatório
-      },
-    });
-
-    if (result === 0) {
-      throw new Error(
-        `Cargo ID ${id_cargo} não encontrado na unidade ${unidade_id} ou não pôde ser excluído.`
-      );
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Métodos Complexos de RH (Stubs exigidos pelo Controller)
-  // -------------------------------------------------------------------------
-
-  /**
-   * @method definirPerfilIdeal
-   * @description Lógica para definir Perfil Ideal (exigido pelo RHController).
-   */
   public async definirPerfilIdeal(perfil: IPerfilIdeal): Promise<void> {
-    console.log(
-      `GPR-3: Lógica para definir Perfil Ideal para Cargo ${perfil.cargo_id}.`
-    );
-    // ⚠️ IMPLEMENTAÇÃO FUTURA
-    return;
+    const existingProfile = await this.PerfilIdeal.findOne({
+      where: {
+        cargo_id: perfil.cargo_id,
+        competencia_id: perfil.competencia_id,
+      },
+    });
+
+    if (existingProfile) {
+      await existingProfile.update({
+        peso: perfil.peso || 1,
+      });
+    } else {
+      await this.PerfilIdeal.create({
+        cargo_id: perfil.cargo_id,
+        competencia_id: perfil.competencia_id,
+        peso: perfil.peso || 1,
+        nivel_minimo: 1,
+      });
+    }
   }
 
-  /**
-   * @method registrarPerformance
-   * @description Lógica para registrar uma avaliação de performance (exigido pelo RHController).
-   */
   public async registrarPerformance(
     performance: IHistoricoPerformance
   ): Promise<void> {
-    console.log(
-      `GPR-3: Lógica para registrar performance para Colaborador ${performance.colaborador_id}.`
-    );
-    // ⚠️ IMPLEMENTAÇÃO FUTURA
-    return;
-  }
-
-  /**
-   * @method calcularSalarioBruto
-   * @description Lógica de cálculo do salário bruto, usando dados do Cargo e Folha de Pagamento.
-   */
-  public async calcularSalarioBruto(
-    id_colaborador: number,
-    unidade_id: number,
-    mesAno: Date
-  ): Promise<number> {
-    const colaborador = await this.getColaboradorById(
-      id_colaborador,
-      unidade_id
-    );
-
-    if (!colaborador || !colaborador.cargo) {
-      throw new Error("Colaborador ou Cargo não encontrado para cálculo.");
-    }
-
-    const salarioBase = colaborador.cargo.salario_base || 0; // Provide a default value
-    let salarioBruto = salarioBase;
-
-    // Lógica GPR-3: Adicionar cálculos de Horas Extras, Adicionais, etc.
-    const horasExtras = 0; // Placeholder
-    salarioBruto += horasExtras;
-
-    return salarioBruto;
+    await this.HistoricoPerformance.create({
+      colaborador_id: performance.colaborador_id,
+      erros_registrados: performance.erros_registrados,
+      desperdicio_total: performance.desperdicio_total,
+      data_registro: new Date(),
+    });
   }
 }

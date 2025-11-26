@@ -1,16 +1,18 @@
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '@config/types';
-import { ResolvedModelMap } from '../config/associations';
+// src/models/ContaContabil.ts (CORRIGIDO)
+
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { ResolvedModelMap } from "../config/associations";
 
 export type TipoConta =
-  | 'RECEITA'
-  | 'CUSTO'
-  | 'DESPESA'
-  | 'ATIVO'
-  | 'PASSIVO'
-  | 'PATRIMONIO_LIQUIDO';
-export type NaturezaConta = 'DEVEDORA' | 'CREDORA';
+  | "RECEITA"
+  | "CUSTO"
+  | "DESPESA"
+  | "ATIVO"
+  | "PASSIVO"
+  | "PATRIMONIO_LIQUIDO";
+export type NaturezaConta = "DEVEDORA" | "CREDORA";
 
 // GPR-2: Tipagem Rígida e Completa - Attributes
 export interface ContaContabilAttributes {
@@ -26,7 +28,7 @@ export interface ContaContabilAttributes {
 // GPR-2: Tipagem Rígida e Completa - CreationAttributes
 export type ContaContabilCreationAttributes = Optional<
   ContaContabilAttributes,
-  'id_conta_contabil' | 'conta_pai_id'
+  "id_conta_contabil" | "conta_pai_id"
 >;
 
 // GPR-2: Tipagem Rígida e Completa - Model Instance
@@ -58,9 +60,8 @@ ContaContabil.init(
     },
     codigo: {
       type: DataTypes.STRING(20),
-      allowNull: false,
-      unique: true,
-      comment: 'Código da conta (ex: 1.1.01.001)',
+      allowNull: false, // REMOVIDO: unique: true, ⬅️ A correção está aqui!
+      comment: "Código da conta (ex: 1.1.01.001)",
     },
     nome_conta: {
       type: DataTypes.STRING(100),
@@ -68,47 +69,59 @@ ContaContabil.init(
     },
     tipo_conta: {
       type: DataTypes.ENUM(
-        'RECEITA',
-        'CUSTO',
-        'DESPESA',
-        'ATIVO',
-        'PASSIVO',
-        'PATRIMONIO_LIQUIDO',
+        "RECEITA",
+        "CUSTO",
+        "DESPESA",
+        "ATIVO",
+        "PASSIVO",
+        "PATRIMONIO_LIQUIDO"
       ),
       allowNull: false,
     },
     natureza: {
-      type: DataTypes.ENUM('DEVEDORA', 'CREDORA'),
+      type: DataTypes.ENUM("DEVEDORA", "CREDORA"),
       allowNull: false,
     },
     conta_pai_id: {
       type: DataTypes.INTEGER,
       allowNull: true,
-      references: { model: 'ContasContabeis', key: 'id_conta_contabil' },
+      references: {
+        model: "CONTAS_CONTABEIS",
+        key: "id_conta_contabil",
+      },
+      onDelete: "SET NULL",
     },
+
     eh_analitica: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
-      comment: 'Se True, permite lançamentos diretos (contas finais).',
+      comment: "Se True, permite lançamentos diretos (contas finais).",
     },
   },
   {
     sequelize: connection,
-    tableName: 'ContasContabeis',
-    underscored: true,
-  },
+    tableName: "CONTAS_CONTABEIS",
+    underscored: true, // 🔑 NOVO: Adiciona a restrição UNIQUE no bloco 'indexes'
+    indexes: [
+      {
+        unique: true,
+        fields: ["codigo"],
+        name: "idx_unique_conta_codigo",
+      },
+    ],
+  }
 );
 
 // GPR-3: Associação Explícita (Hierarquia)
 (ContaContabil as any).associate = function (models: ResolvedModelMap) {
   // Auto-associação para criar a hierarquia Pai/Filho
   ContaContabil.belongsTo(models.ContaContabil, {
-    as: 'contaPai',
-    foreignKey: 'conta_pai_id',
+    as: "contaPai",
+    foreignKey: "conta_pai_id",
   });
   ContaContabil.hasMany(models.ContaContabil, {
-    as: 'subContas',
-    foreignKey: 'conta_pai_id',
+    as: "subContas",
+    foreignKey: "conta_pai_id",
   });
 };

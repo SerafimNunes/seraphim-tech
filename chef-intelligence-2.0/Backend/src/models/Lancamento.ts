@@ -1,14 +1,13 @@
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types'; // Importando para associação
-import { ResolvedModelMap } from '../config/associations';
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+// 🚨 REMOVIDO: import { ResolvedModelMap } from '../config/associations';
 
-export type TipoLancamento = 'RECEITA' | 'DESPESA' | 'SANGRIA' | 'REFORCO';
+export type TipoLancamento = "RECEITA" | "DESPESA" | "SANGRIA" | "REFORCO";
 
 export interface LancamentoAttributes {
   id_lancamento: number;
-  id_caixa: number | null;
-  // GPR-1: Adicionando o campo de segurança R4
+  id_caixa: number | null; // GPR-1: Adicionando o campo de segurança R4
   unidade_id: number;
   colaborador_id: number;
   tipo_lancamento: TipoLancamento;
@@ -17,22 +16,22 @@ export interface LancamentoAttributes {
   categoria: string | null;
   data_lancamento: Date; // Opcional para rastreabilidade de origem (ex: qual venda gerou)
   id_origem: number | null;
-  tipo_origem: 'VENDA' | 'PEDIDO' | null;
+  tipo_origem: "VENDA" | "PEDIDO" | null;
 }
 
 export interface LancamentoCreationAttributes
   extends Optional<
     LancamentoAttributes,
-    | 'id_lancamento'
-    | 'data_lancamento'
-    | 'id_caixa'
-    | 'categoria'
-    | 'id_origem'
-    | 'tipo_origem'
+    | "id_lancamento"
+    | "data_lancamento"
+    | "id_caixa"
+    | "categoria"
+    | "id_origem"
+    | "tipo_origem"
   > {}
 
-// Renomeado para Lancamento (R6)
-export class Lancamento
+// 🚨 CORREÇÃO TS2528: Removido 'export default' e 'export' da declaração da classe
+class Lancamento
   extends Model<LancamentoAttributes, LancamentoCreationAttributes>
   implements LancamentoAttributes
 {
@@ -46,7 +45,7 @@ export class Lancamento
   public categoria!: string | null;
   public data_lancamento!: Date;
   public id_origem!: number | null;
-  public tipo_origem!: 'VENDA' | 'PEDIDO' | null; // Associações (a serem definidas no arquivo index de modelos) // public readonly caixa?: CaixaModel;
+  public tipo_origem!: "VENDA" | "PEDIDO" | null;
 }
 
 Lancamento.init(
@@ -59,22 +58,21 @@ Lancamento.init(
     id_caixa: {
       type: DataTypes.INTEGER,
       allowNull: true,
-      references: { model: 'CAIXAS', key: 'id_caixa' },
-    },
-    // GPR-1: Adicionando campo de segurança R4
+      references: { model: "CAIXAS", key: "id_caixa" },
+    }, // GPR-1: Adicionando campo de segurança R4
     unidade_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      comment: 'ID da Unidade de negócio (Regra R4)',
-      references: { model: 'Unidades', key: 'id_unidade' },
+      comment: "ID da Unidade de negócio (Regra R4)",
+      references: { model: "UNIDADES", key: "id_unidade" },
     },
     colaborador_id: { type: DataTypes.INTEGER, allowNull: false },
     tipo_lancamento: { type: DataTypes.STRING(20), allowNull: false },
     valor: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false, // 🔑 R1: Getter já estava presente
+      allowNull: false,
       get() {
-        return parseFloat(this.getDataValue('valor') as unknown as string);
+        return parseFloat(this.getDataValue("valor") as unknown as string);
       },
     },
     descricao: { type: DataTypes.STRING(255), allowNull: false },
@@ -88,24 +86,37 @@ Lancamento.init(
     tipo_origem: { type: DataTypes.STRING(10), allowNull: true },
   },
   {
-    tableName: 'LANCAMENTOS',
+    tableName: "LANCAMENTOS",
     sequelize: connection,
     timestamps: false,
-    modelName: 'Lancamento',
-  },
+    modelName: "Lancamento",
+  }
 );
 
-// GPR-3: Associação Explícita
-(Lancamento as any).associate = function (models: ResolvedModelMap) {
+// 🚨 CORREÇÃO: Uso de IModelFactory e robustez (if + as any)
+(Lancamento as any).associate = function (models: IModelFactory) {
   // GPR-1: Associação obrigatória à Unidade
-  Lancamento.belongsTo(models.Unidade, {
-    foreignKey: 'unidade_id',
-    as: 'unidade',
-  });
-  Lancamento.belongsTo(models.Caixa, {
-    foreignKey: 'id_caixa',
-    as: 'caixa',
-  });
+  if (models.Unidade) {
+    Lancamento.belongsTo(models.Unidade as any, {
+      foreignKey: "unidade_id",
+      as: "unidade",
+    });
+  } else {
+    console.warn(
+      "Modelo Unidade não carregado. Associação Lancamento -> Unidade ignorada."
+    );
+  }
+  // Associação à Caixa
+  if (models.Caixa) {
+    Lancamento.belongsTo(models.Caixa as any, {
+      foreignKey: "id_caixa",
+      as: "caixa",
+    });
+  } else {
+    console.warn(
+      "Modelo Caixa não carregado. Associação Lancamento -> Caixa ignorada."
+    );
+  }
 };
 
 export default Lancamento;

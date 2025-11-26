@@ -1,13 +1,13 @@
 // src/models/CompraNecessidade.ts
 
-import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
-import { ResolvedModelMap } from '../config/associations';
-import { ItemEstoqueModel } from './ItemEstoque';
-import ProducaoNecessidade from './ProducaoNecessidade';
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { ResolvedModelMap } from "../config/associations";
+import { ItemEstoqueModel } from "./ItemEstoque";
+import ProducaoNecessidade from "./ProducaoNecessidade";
 
-type OrigemNecessidade = 'PRODUCAO' | 'ESTOQUE_MINIMO' | 'MANUAL';
+type OrigemNecessidade = "PRODUCAO" | "ESTOQUE_MINIMO" | "MANUAL";
 
 export interface CompraNecessidadeAttributes {
   id_necessidade_compra: number;
@@ -19,21 +19,21 @@ export interface CompraNecessidadeAttributes {
   data_solicitacao: Date;
   colaborador_id_solicitante: number;
   data_limite_atendimento: Date | null;
-  status_atendimento: 'PENDENTE' | 'PARCIAL' | 'ATENDIDA' | 'CANCELADA';
+  status_atendimento: "PENDENTE" | "PARCIAL" | "ATENDIDA" | "CANCELADA";
   observacoes: string | null;
 }
 
 export interface CompraNecessidadeCreationAttributes
   extends Optional<
     CompraNecessidadeAttributes,
-    | 'id_necessidade_compra'
-    | 'id_origem_referencia'
-    | 'data_limite_atendimento'
-    | 'status_atendimento'
-    | 'observacoes'
+    | "id_necessidade_compra"
+    | "id_origem_referencia"
+    | "data_limite_atendimento"
+    | "status_atendimento"
+    | "observacoes"
   > {}
 
-export default class CompraNecessidade
+class CompraNecessidade
   extends Model<
     CompraNecessidadeAttributes,
     CompraNecessidadeCreationAttributes
@@ -49,7 +49,7 @@ export default class CompraNecessidade
   public data_solicitacao!: Date;
   public colaborador_id_solicitante!: number;
   public data_limite_atendimento!: Date | null;
-  public status_atendimento!: 'PENDENTE' | 'PARCIAL' | 'ATENDIDA' | 'CANCELADA';
+  public status_atendimento!: "PENDENTE" | "PARCIAL" | "ATENDIDA" | "CANCELADA";
   public observacoes!: string | null;
 
   public readonly createdAt!: Date;
@@ -75,7 +75,7 @@ CompraNecessidade.init(
       type: DataTypes.DECIMAL(10, 3),
       allowNull: false,
       get() {
-        return parseFloat(this.getDataValue('quantidade_solicitada') as any);
+        return parseFloat(this.getDataValue("quantidade_solicitada") as any);
       },
     },
     origem: {
@@ -101,7 +101,7 @@ CompraNecessidade.init(
     status_atendimento: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: 'PENDENTE',
+      defaultValue: "PENDENTE",
     },
     observacoes: {
       type: DataTypes.TEXT,
@@ -110,26 +110,25 @@ CompraNecessidade.init(
   },
   {
     sequelize: connection,
-    modelName: 'CompraNecessidade',
-    tableName: 'PLANEJAMENTO_COMPRA',
+    modelName: "CompraNecessidade",
+    tableName: "PLANEJAMENTO_COMPRA",
     underscored: true,
-  },
+  }
 );
 
 (CompraNecessidade as any).associate = (models: ResolvedModelMap) => {
   CompraNecessidade.belongsTo(
     models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
     {
-      foreignKey: 'id_produto',
-      as: 'produto',
-    },
+      foreignKey: "id_produto",
+      as: "produto",
+    }
   );
 
-  CompraNecessidade.belongsTo(
-    models.ProducaoNecessidade,
-    {
-      foreignKey: 'id_origem_referencia',
-      as: 'origemProducao',
-    },
-  );
+  CompraNecessidade.belongsTo(models.ProducaoNecessidade, {
+    foreignKey: "id_origem_referencia",
+    as: "origemProducao",
+  });
 };
+
+export default CompraNecessidade;

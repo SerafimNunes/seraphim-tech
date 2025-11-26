@@ -1,7 +1,12 @@
 // src/services/PlanejamentoService.ts
+
 import ItemEstoque, { ItemEstoqueModel } from "../models/ItemEstoque";
 import { connection } from "../config/sequelize";
 import { Op, literal } from "sequelize";
+
+// 🔑 NOVOS IMPORTS: Services que este Service irá orquestrar
+import { ForecastService } from "./ForecastService";
+import { FichaTecnicaService } from "./FichaTecnicaService";
 
 /**
  * Interface para o DTO (Data Transfer Object) de Necessidade de Reposição.
@@ -12,9 +17,8 @@ interface NecessidadeItem {
   nome: string;
   unidade_medida: string;
   estoque_atual: number;
-  // 🛑 CORRIGIDO: Nome da propriedade agora é 'pronto_pedido' (com 'r')
   pronto_pedido: number;
-  necessidade: number; // Quantidade a ser comprada/produzida
+  necessidade: number; // Quantidade a ser comprada/produzida (Calculada pelo R11)
   tipo_movimentacao: "COMPRA" | "PRODUCAO";
 }
 
@@ -26,12 +30,90 @@ interface PlanejamentoFilter {
 }
 
 export class PlanejamentoService {
+  // 🔑 Propriedades para Injeção de Dependência
+  private forecastService: ForecastService;
+  private fichaTecnicaService: FichaTecnicaService;
+  // ... (outras injeções, se houver)
+
+  // 🔑 CONSTRUTOR CORRIGIDO: Implementando Injeção de Dependência Limpa
+  // Note: Ele RECEBE os serviços, e o index.ts os cria e passa.
+  constructor(
+    forecastService: ForecastService,
+    fichaTecnicaService: FichaTecnicaService
+  ) {
+    this.forecastService = forecastService;
+    this.fichaTecnicaService = fichaTecnicaService;
+    // ... inicialização de outros serviços
+  }
+
   /**
-   * (GSI 1.E, 1.F) Implementa a lógica para calcular os itens que estão abaixo
-   * do ponto de pedido (Pronto Pedido).
-   *
-   * @param filter Filtros de segregação de dados (ex: unidade_id).
-   * @returns Uma lista de itens com a necessidade de reposição calculada.
+   * 🎯 R11 (Ponto de Pedido Otimizado) - Calcula sugestão baseada no Forecast (Previsão de Vendas).
+   * Este método ignora 'pronto_pedido' do model e usa a previsão de demanda.
+   */
+  public async gerarSugestaoCompraOtimizada(
+    payload: PlanejamentoFilter // Usa o filtro de unidade existente
+  ): Promise<NecessidadeItem[]> {
+    // 1. Gera a Previsão de Demanda (ForecastService)
+    const forecast = await this.forecastService.gerarForecastVendas({
+      unidade_id: payload.unidade_id,
+      dias_previsao: 7, // Ex: Prever para os próximos 7 dias
+      dias_historico: 30, // Ex: Usar histórico dos últimos 30 dias
+    });
+
+    // 2. Explode a Demanda (Previsão) em Insumos Necessários (FichaTecnicaService)
+    const insumosNecessarios = await this.fichaTecnicaService.explodirDemanda(
+      forecast,
+      payload.unidade_id
+    );
+
+    const sugestoes: NecessidadeItem[] = [];
+
+    for (const necessidade of insumosNecessarios) {
+      // 3. Busca o Estoque Atual do Insumo (R4)
+      const itemEstoque = (await ItemEstoque.findOne({
+        where: {
+          id_item: necessidade.id_produto,
+          unidade_id: payload.unidade_id,
+        },
+      })) as ItemEstoqueModel | null;
+
+      if (!itemEstoque) continue;
+
+      const estoqueAtual = itemEstoque.getSaldoAtual();
+
+      // Assume-se que 'estoque_seguranca' já foi adicionado ao ItemEstoque Model
+      const estoqueSeguranca = (itemEstoque as any).estoque_seguranca || 0;
+
+      // R11: Necessidade de Compra = (Total Necessário do Forecast + Estoque de Segurança) - Estoque Atual
+      let quantidadeComprar =
+        necessidade.quantidade_total_necessaria +
+        estoqueSeguranca -
+        estoqueAtual;
+
+      if (quantidadeComprar > 0) {
+        sugestoes.push({
+          id_item: itemEstoque.id_item,
+          nome: itemEstoque.nome,
+          unidade_medida: itemEstoque.unidade_medida,
+          estoque_atual: estoqueAtual,
+          // Mantemos 'pronto_pedido' no DTO, mas o valor é 0 ou o antigo PP, pois a lógica mudou
+          pronto_pedido: (itemEstoque as any).getProntoPedido
+            ? (itemEstoque as any).getProntoPedido()
+            : 0,
+          necessidade: parseFloat(quantidadeComprar.toFixed(2)),
+          tipo_movimentacao:
+            itemEstoque.tipo_item === "INGREDIENTE" ? "COMPRA" : "PRODUCAO",
+        });
+      }
+    }
+
+    // 4. Gera a lista de sugestões de alto nível
+    return sugestoes;
+  }
+
+  /**
+   * (GSI 1.E, 1.F) Implementa a lógica REATIVA (Ponto de Pedido tradicional).
+   * Este método é mantido para compatibilidade, mas a R11 é preferencial.
    */
   public async gerarListaNecessidade(
     filter: PlanejamentoFilter
@@ -39,13 +121,11 @@ export class PlanejamentoService {
     try {
       // 1. Buscar todos os itens de estoque para a unidade (R4) que possuem Ponto de Pedido definido
       const itens = await ItemEstoque.findAll({
-        // (GSI 1.F) Interação direta com o modelo
         where: {
           unidade_id: filter.unidade_id,
-          // 🛑 CORRIGIDO: Usa 'pronto_pedido' na cláusula WHERE
           [Op.and]: [
-            { estoque_atual: { [Op.gt]: literal('estoque_minimo') } },
-            { estoque_minimo: { [Op.gt]: 0 } } // Only consider items with a defined minimum stock
+            { estoque_atual: { [Op.gt]: literal("estoque_minimo") } },
+            { estoque_minimo: { [Op.gt]: 0 } }, // Only consider items with a defined minimum stock
           ],
         },
       });

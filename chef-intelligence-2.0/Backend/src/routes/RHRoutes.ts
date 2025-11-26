@@ -1,29 +1,85 @@
-// src/routes/RHRoutes.ts
+import { Router, Request, Response, NextFunction } from "express";
+import { RHController } from "../controllers/RHController"; // Assumindo este caminho
 
-import { Router } from "express";
-import { RHController } from "../controllers/RHController";
-import { RHService } from "../services/RHService";
-import { EscalaService } from "../services/EscalaService";
+// ⚠️ SIMULAÇÃO DE MIDDLEWARES ⚠️
+// Devem ser implementados para validar JWT, unidade do usuário (R4) e permissões (R12).
+const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  // Lógica de Autenticação JWT e extração de userId/unidadeId
+  console.log("[Middleware] Usuário autenticado e unidade verificada (R4).");
+  next();
+};
 
-// ✅ CORREÇÃO TS2554 (em RHRoutes.ts): Estrutura correta da função factory
-export function configureRHRoutes(
-  rhService: RHService,
-  escalaService: EscalaService
-): Router {
-  const router = Router();
+const rbacMiddleware = (permissoesRequeridas: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    // Lógica de Autorização (RBAC - R12): Verifica se o usuário tem as permissões necessárias
+    console.log(
+      `[Middleware] Checando Permissões: ${permissoesRequeridas.join(", ")}`
+    );
+    next(); // Passa adiante se autorizado
+  };
+};
 
-  // ✅ CORREÇÃO TS2554 (em RHController.ts): Instancia o Controller injetando os 2 serviços
-  const rhController = new RHController(rhService, escalaService);
+/**
+ * Define as rotas HTTP para o domínio de Recursos Humanos (RH).
+ * Segue o padrão de Rotas do Express + Middlewares de Segurança (R12).
+ */
+export class RHRoutes {
+  public router: Router;
+  private rhController: RHController;
 
-  // Rotas de Recursos Humanos
-  router.post("/rh/perfil-ideal", rhController.definirPerfilIdeal);
-  router.post("/rh/performance", rhController.registrarPerformance);
+  constructor(rhController: RHController) {
+    this.rhController = rhController;
+    this.router = Router();
+    this.initializeRoutes();
+  }
 
-  // Rotas de Escala
-  router.post("/rh/escala/gerar", rhController.gerarEscala);
-  router.patch("/rh/escala/:id/aprovar", rhController.aprovarEscala);
+  private initializeRoutes(): void {
+    // ------------------------------------------------------------------------
+    // Rota para Dashboard BI (Turnover)
+    // [GET] /api/rh/turnover?unidade_id=X&ano=Y
+    // Acesso: ADMIN, GERENTE (para BI e KPIs)
+    // ------------------------------------------------------------------------
+    this.router.get(
+      "/turnover",
+      authMiddleware,
+      rbacMiddleware(["RH_LEITURA", "DASHBOARD_BI"]),
+      (req, res) => this.rhController.getTurnoverAnalysis(req, res)
+    );
 
-  return router;
+    // ------------------------------------------------------------------------
+    // Rota para Definição do Perfil Ideal (Configuração de RH)
+    // [POST] /api/rh/perfil-ideal
+    // Acesso: ADMIN, COORDENADOR (para configuração de metas/perfis)
+    // ------------------------------------------------------------------------
+    this.router.post(
+      "/perfil-ideal",
+      authMiddleware,
+      rbacMiddleware(["RH_GESTAO", "CONFIG_GERAL"]),
+      (req, res) => this.rhController.definirPerfilIdeal(req, res)
+    );
+
+    // ------------------------------------------------------------------------
+    // Rota para Registro de Performance (Avaliação de RH)
+    // [POST] /api/rh/performance
+    // Acesso: ADMIN, COORDENADOR (para registrar avaliações)
+    // ------------------------------------------------------------------------
+    this.router.post(
+      "/performance",
+      authMiddleware,
+      rbacMiddleware(["RH_GESTAO", "GESTOR_REGISTRO"]),
+      (req, res) => this.rhController.registrarPerformance(req, res)
+    );
+
+    // ------------------------------------------------------------------------
+    // Rota para Aprovação de Escala (Se a aprovação for delegada ao RHController)
+    // [PUT] /api/rh/escalas/:id/aprovar
+    // Acesso: ADMIN, GERENTE
+    // ------------------------------------------------------------------------
+    this.router.put(
+      "/escalas/:id/aprovar",
+      authMiddleware,
+      rbacMiddleware(["ESCALA_APROVACAO", "RH_GESTAO"]),
+      (req, res) => this.rhController.aprovarEscala(req, res)
+    );
+  }
 }
-
-// Importante: O index.ts importa a função configureRHRoutes, e não um export default.

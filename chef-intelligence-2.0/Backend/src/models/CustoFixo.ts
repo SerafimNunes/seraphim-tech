@@ -1,8 +1,8 @@
 // src/models/CustoFixo.ts
 
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
 
 export interface CustoFixoAttributes {
   id_custo_fixo: number;
@@ -10,14 +10,20 @@ export interface CustoFixoAttributes {
   descricao: string;
   valor: number;
   data_lancamento: Date;
-  categoria: 'ALUGUEL' | 'SALARIO' | 'SERVICO' | 'IMPOSTO' | 'OUTRO';
+  categoria: "ALUGUEL" | "SALARIO" | "SERVICO" | "IMPOSTO" | "OUTRO";
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface CustoFixoCreationAttributes
-  extends Optional<CustoFixoAttributes, 'id_custo_fixo'> {}
+  extends Optional<CustoFixoAttributes, "id_custo_fixo"> {}
 
+// NOVO: Interface que representa a instância do modelo, para uso em tipagem externa (ex: Services)
+export interface CustoFixoModel
+  extends Model<CustoFixoAttributes, CustoFixoCreationAttributes>,
+    CustoFixoAttributes {}
+
+// Define o modelo (classe padrão)
 export default class CustoFixo
   extends Model<CustoFixoAttributes, CustoFixoCreationAttributes>
   implements CustoFixoAttributes
@@ -27,7 +33,7 @@ export default class CustoFixo
   public descricao!: string;
   public valor!: number;
   public data_lancamento!: Date;
-  public categoria!: 'ALUGUEL' | 'SALARIO' | 'SERVICO' | 'IMPOSTO' | 'OUTRO';
+  public categoria!: "ALUGUEL" | "SALARIO" | "SERVICO" | "IMPOSTO" | "OUTRO";
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -52,7 +58,7 @@ CustoFixo.init(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       get() {
-        return parseFloat(this.getDataValue('valor') as any);
+        return parseFloat(this.getDataValue("valor") as any);
       },
     },
     data_lancamento: {
@@ -66,10 +72,10 @@ CustoFixo.init(
   },
   {
     sequelize: connection,
-    tableName: 'CUSTOS_FIXOS',
-    modelName: 'CustoFixo',
+    tableName: "CUSTOS_FIXOS",
+    modelName: "CustoFixo",
     underscored: true,
-  },
+  }
 );
 
 (CustoFixo as any).associate = (models: IModelFactory) => {

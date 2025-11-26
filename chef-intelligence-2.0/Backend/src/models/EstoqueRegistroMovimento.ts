@@ -1,21 +1,21 @@
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import Unidade from './Unidade'; // 🔑 Importa Unidade para associação (R4)
-import { IModelFactory } from '../config/types'; // Importa a interface de factory
-import { ResolvedModelMap } from '../config/associations';
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import Unidade from "./Unidade"; // 🔑 Importa Unidade para associação (R4)
+import { IModelFactory } from "../config/types"; // Importa a interface de factory
+import { ResolvedModelMap } from "../config/associations";
 
 // Tipos de Movimento (União de strings literais)
 export type TipoMovimentoEstoque =
-  | 'ENTRADA'
-  | 'SAIDA_VENDA'
-  | 'AJUSTE_ENTRADA' // Ajuste genérico de entrada
-  | 'AJUSTE_SAIDA' // Ajuste genérico de saída
-  | 'AJUSTE_SOBRA' // 🔑 NOVO: Ajuste específico de contagem (ENTRADA)
-  | 'AJUSTE_PERDA' // 🔑 NOVO: Ajuste específico de contagem (SAÍDA)
-  | 'TRANSFERENCIA'
-  | 'PRODUCAO_ENTRADA'
-  | 'CONSUMO_VENDA' // 🔑 Adicionado o tipo de movimento usado no VendaItemService
-  | 'AJUSTE_SAIDA_PERDA'; // Exemplo de um ajuste mais específico
+  | "ENTRADA"
+  | "SAIDA_VENDA"
+  | "AJUSTE_ENTRADA" // Ajuste genérico de entrada
+  | "AJUSTE_SAIDA" // Ajuste genérico de saída
+  | "AJUSTE_SOBRA" // 🔑 NOVO: Ajuste específico de contagem (ENTRADA)
+  | "AJUSTE_PERDA" // 🔑 NOVO: Ajuste específico de contagem (SAÍDA)
+  | "TRANSFERENCIA"
+  | "PRODUCAO_ENTRADA"
+  | "CONSUMO_VENDA" // 🔑 Adicionado o tipo de movimento usado no VendaItemService
+  | "AJUSTE_SAIDA_PERDA"; // Exemplo de um ajuste mais específico
 
 // Atributos do Model (Campos da Tabela)
 export interface EstoqueRegistroMovimentoAttributes {
@@ -34,7 +34,7 @@ export interface EstoqueRegistroMovimentoAttributes {
 
 // Atributos de criação (id_movimento é opcional, pois é auto-incrementado)
 export interface EstoqueRegistroMovimentoCreationAttributes
-  extends Optional<EstoqueRegistroMovimentoAttributes, 'id_movimento'> {}
+  extends Optional<EstoqueRegistroMovimentoAttributes, "id_movimento"> {}
 
 // Definição do Model
 export class EstoqueRegistroMovimento
@@ -78,7 +78,7 @@ EstoqueRegistroMovimento.init(
       // 🔑 CORREÇÃO R4: Coluna para isolamento
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
-      references: { model: 'unidades', key: 'id_unidade' },
+      references: { model: "UNIDADES", key: "id_unidade" },
     },
     tipo_movimento: {
       type: DataTypes.STRING(20),
@@ -86,16 +86,16 @@ EstoqueRegistroMovimento.init(
       validate: {
         isIn: [
           [
-            'ENTRADA',
-            'SAIDA_VENDA',
-            'AJUSTE_ENTRADA',
-            'AJUSTE_SAIDA',
-            'AJUSTE_SOBRA',
-            'AJUSTE_PERDA',
-            'TRANSFERENCIA',
-            'PRODUCAO_ENTRADA',
-            'CONSUMO_VENDA', // 🔑 Adicionado à validação
-            'AJUSTE_SAIDA_PERDA', // 🔑 Adicionado à validação
+            "ENTRADA",
+            "SAIDA_VENDA",
+            "AJUSTE_ENTRADA",
+            "AJUSTE_SAIDA",
+            "AJUSTE_SOBRA",
+            "AJUSTE_PERDA",
+            "TRANSFERENCIA",
+            "PRODUCAO_ENTRADA",
+            "CONSUMO_VENDA", // 🔑 Adicionado à validação
+            "AJUSTE_SAIDA_PERDA", // 🔑 Adicionado à validação
           ],
         ],
       },
@@ -132,21 +132,23 @@ EstoqueRegistroMovimento.init(
   },
   {
     sequelize: connection,
-    tableName: 'estoque_registros_movimento',
-  },
+    tableName: "ESTOQUE_REGISTRO_MOVIMENTO",
+  }
 );
 
 // Associações
-(EstoqueRegistroMovimento as any).associate = function (models: ResolvedModelMap) {
+(EstoqueRegistroMovimento as any).associate = function (
+  models: ResolvedModelMap
+) {
   // 🔑 R4: Associação com a Unidade
   EstoqueRegistroMovimento.belongsTo(models.Unidade, {
-    foreignKey: 'unidade_id',
-    as: 'unidade',
+    foreignKey: "unidade_id",
+    as: "unidade",
   });
   // Associa com o Produto (ItemEstoque)
   EstoqueRegistroMovimento.belongsTo(models.ItemEstoque, {
-    foreignKey: 'id_produto',
-    as: 'produto',
+    foreignKey: "id_produto",
+    as: "produto",
   });
 };
 

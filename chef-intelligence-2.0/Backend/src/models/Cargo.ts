@@ -1,7 +1,12 @@
 // src/models/Cargo.ts
-import { DataTypes, Model, Optional } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
+
+import { DataTypes, Model, Optional } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
+import { PermissaoModel } from "./Permissao";
+
+// Importa o modelo de junção para usá-lo no `through`
+import CargoPermissao from "./CargoPermissao"; // ⬅️ NOVO: Importa o modelo de junção
 
 export interface CargoAttributes {
   id_cargo: number;
@@ -9,19 +14,35 @@ export interface CargoAttributes {
   nome_cargo: string;
   departamento?: string | null;
   salario_base?: number;
+  is_super_admin: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface CargoCreationAttributes
-  extends Optional<CargoAttributes, 'id_cargo'> {}
+  extends Optional<CargoAttributes, "id_cargo"> {}
 
 export interface CargoModel
   extends Model<CargoAttributes, CargoCreationAttributes>,
-    CargoAttributes {}
+    CargoAttributes {
+  permissoes?: PermissaoModel[];
+}
 
-const Cargo = connection.define<CargoModel>(
-  'Cargo',
+class Cargo
+  extends Model<CargoAttributes, CargoCreationAttributes>
+  implements CargoAttributes
+{
+  public id_cargo!: number;
+  public unidade_id!: number;
+  public nome_cargo!: string;
+  public departamento?: string | null;
+  public salario_base?: number;
+  public is_super_admin!: boolean;
+  public readonly createdAt!: Date;
+  public readonly updatedAt!: Date;
+}
+
+Cargo.init(
   {
     id_cargo: {
       type: DataTypes.INTEGER,
@@ -40,11 +61,18 @@ const Cargo = connection.define<CargoModel>(
       type: DataTypes.STRING(100),
       allowNull: true,
     },
+
+    is_super_admin: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
     salario_base: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
       get() {
-        const v = this.getDataValue('salario_base') as unknown as
+        const v = this.getDataValue("salario_base") as unknown as
           | string
           | number;
         return v == null ? null : parseFloat(String(v));
@@ -52,28 +80,30 @@ const Cargo = connection.define<CargoModel>(
     },
   },
   {
-    tableName: 'CARGOS',
+    tableName: "CARGOS",
+    modelName: "CARGOS",
     sequelize: connection,
     timestamps: true,
-    modelName: 'Cargo',
-  } as any,
+    underscored: true,
+  }
 );
 
 (Cargo as any).associate = (models: IModelFactory) => {
-  if (!models) return;
-  if (models.Permissao) {
-    // many-to-many via join table CARGO_PERMISSOES (exemplo)
+  if (!models) return; // Garante que Permissao e o modelo de junção CargoPermissao existam
+  if (models.Permissao && models.CargoPermissao) {
+    // many-to-many via join table CARGO_PERMISSOES (R12)
     Cargo.belongsToMany(models.Permissao as any, {
-      through: 'CARGO_PERMISSOES',
-      foreignKey: 'cargo_id',
-      otherKey: 'permissao_id',
-      as: 'permissoes',
+      through: models.CargoPermissao as any, // ⬅️ CORREÇÃO: Usa o modelo explícito
+      foreignKey: "cargo_id",
+      otherKey: "permissao_id",
+      as: "permissoes",
     });
   }
   if (models.Usuario) {
+    // Um cargo pode ter muitos usuários
     Cargo.hasMany(models.Usuario as any, {
-      foreignKey: 'cargo_id',
-      as: 'usuarios',
+      foreignKey: "cargo_id",
+      as: "usuarios",
     });
   }
 };

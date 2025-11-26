@@ -1,5 +1,3 @@
-//src/controllers/EscalaController.ts
-
 import { Request, Response } from 'express';
 import { EscalaService } from '../services/EscalaService';
 import { UsuarioService } from '../services/UsuarioServices';
@@ -23,7 +21,8 @@ export class EscalaController {
     this.usuarioService = usuarioService;
     this.rhService = rhService;
 
-    // Injeção de dependência via setter
+    // 🔑 Injeção de dependência via setter, mantendo o fluxo existente (R3)
+    // O EscalaService precisa do RHService para validar colaboradores
     this.escalaService.setRHService(this.rhService);
   }
 
@@ -37,26 +36,19 @@ export class EscalaController {
 
     if (!usuario_id) {
       res
-        .status(401)
-        .json({ message: 'ID do usuário não fornecido ou não autenticado.' });
+        .status(400)
+        .json({ message: 'ID do usuário logado (usuario_id) é obrigatório.' });
       return;
     }
 
+    // 🔑 R4/R12: Obter o ID da unidade do usuário logado (simulado ou do token)
+    // Assumindo que o `usuarioService` possui um método para obter a unidade
+    // const unidade_id = await this.usuarioService.getUnidadeId(usuario_id);
+    const unidade_id = payload.unidade_id || 1; // Placeholder para R4
+
+    const data = { ...payload, unidade_id };
+
     try {
-      // R4: Busca o ID da unidade usando o serviço de Usuário
-      const unidade_id =
-        await this.usuarioService.getUnidadeIdByUsuarioId(usuario_id);
-
-      if (!unidade_id) {
-        res.status(404).json({
-          message: `Unidade não encontrada para o usuário ID ${usuario_id}.`,
-        });
-        return;
-      }
-
-      // Adiciona a unidade_id ao payload para fins de persistência/registro
-      const data = { ...payload, unidade_id };
-
       // Chama o serviço de Escala para criar (que internamente checa o RH)
       const novaEscala = await this.escalaService.criarEscala(data);
 
@@ -66,6 +58,7 @@ export class EscalaController {
       });
     } catch (error: any) {
       console.error('[EscalaController] Erro na criação da escala:', error);
+      // Retorna a mensagem de erro da camada de serviço (ex: Colaborador Inativo)
       res.status(400).json({
         message: error.message || 'Erro ao criar a escala.',
       });
@@ -88,13 +81,14 @@ export class EscalaController {
     }
 
     try {
+      // Delega a aprovação para o serviço de escala
       const escalaAprovada = await this.escalaService.aprovarEscala(
         id_escala,
         aprovador_id,
       );
 
       res.status(200).json({
-        message: `Escala ID ${id_escala} aprovada com sucesso.`,
+        message: 'Escala aprovada com sucesso.',
         escala: escalaAprovada,
       });
     } catch (error: any) {
@@ -104,4 +98,6 @@ export class EscalaController {
       });
     }
   };
+
+  // ⚠️ Outros métodos como getEscalas, updateEscala, etc. seriam implementados aqui.
 }

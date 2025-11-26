@@ -1,19 +1,30 @@
-# Dependências e Builds
-node_modules/
-dist/
-build/
-coverage/
-.github/
-docs/
+# Caminho: .gitignore (Raiz do Projeto)
 
-# Logs e Cache
+# --- DEPENDÊNCIAS, LOCKS E ARTEFATOS DE GERENCIAMENTO ---
+node_modules
+pnpm-lock.yaml 
+
+# --- PASTAS DE BUILD/COMPILAÇÃO DE PACOTES ---
+# Saídas do Backend (Ex: Pasta de compilação do TypeScript)
+/backend/dist
+/backend/build
+
+# Exclusões genéricas de build (caso o frontend tenha sido esquecido acima)
+/frontend/build
+/frontend/dist
+
+# --- CACHE, LOGS E FERRAMENTAS ---
 *.log
 npm-debug.log*
 .eslintcache
+/coverage
 
-# Sistema Operacional
+# --- SISTEMA OPERACIONAL E IDE ---
 .DS_Store
 Thumbs.db
-
-# VS Code (Configurações locais)
+# Arquivos de cache da IDE (se não quiser versionar configurações do time)
 .vscode/
+
+# --- VARIÁVEIS DE AMBIENTE (fallback) ---
+.env
+.env.*

@@ -1,0 +1,7 @@
+# pnpm-workspace.yaml (na raiz do projeto)
+
+packages:
+  # Define que a pasta 'backend' é um workspace
+  - "backend"
+  # Define que a pasta 'frontend' é um workspace (SvelteKit)
+  - "frontend"

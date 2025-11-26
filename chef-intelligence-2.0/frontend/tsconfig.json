@@ -1,48 +1,23 @@
+// Caminho: frontend/tsconfig.json
 {
-  "compilerOptions": {
-    "target": "es5",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    
-    // 🎯 CORREÇÃO CRÍTICA: Adicione o baseUrl
-    "baseUrl": ".", 
-    
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "paths": {
-      "@/*": [
-        "./src/*"
-      ]
-    }
-  },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.js",
-    "**/*.jsx",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+    "extends": "./.svelte-kit/tsconfig.json",
+    "compilerOptions": {
+        "rewriteRelativeImportExtensions": true,
+        "allowJs": true,
+        "checkJs": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "skipLibCheck": true,
+        "sourceMap": true,
+        "strict": true,
+        "moduleResolution": "bundler"
+    },
+
+    // 🔑 CORREÇÃO CRÍTICA PARA AUTOCOMPLETAR:
+    // Inclui explicitamente os arquivos Svelte e TypeScript na análise
+    "include": ["src/**/*.d.ts", "src/**/*.ts", "src/**/*.svelte", ".svelte-kit/types/**/*.d.ts"],
+
+    // Opções de exclusão padrão (pode ser omitido se já estiver no arquivo estendido)
+    "exclude": ["node_modules", "dist"]
 }

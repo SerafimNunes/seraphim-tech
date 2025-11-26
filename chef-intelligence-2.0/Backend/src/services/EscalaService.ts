@@ -1,74 +1,55 @@
 import { RHService } from "./RHService";
-// A importação agora funciona porque EscalaModel é exportado via type alias
 import Escala, {
   EscalaCreationAttributes,
   EscalaModel,
 } from "../models/Escala";
+import { Transaction } from "sequelize";
 
-// Tipagem base para o payload de criação (para uso interno)
+// Interface para uso interno
 interface CriarEscalaPayload extends EscalaCreationAttributes {
-  colaboradores: number[]; // Lista de IDs de colaboradores (PKs: id_colaborador)
+  colaboradores: number[];
+  transaction?: Transaction;
+  data_escala: Date; 
 }
 
-/**
- * Serviço responsável pela lógica de negócio e persistência do módulo de Escalas.
- */
 export class EscalaService {
   private rhService!: RHService;
 
-  constructor() {
-    // console.log("EscalaService: Instanciado.");
-  }
-
-  // Método Setter para injeção de dependência tardia
   public setRHService(rhService: RHService): void {
     this.rhService = rhService;
   }
 
-  /**
-   * R13: Cria uma nova proposta de escala no banco de dados.
-   */
   public async criarEscala(data: CriarEscalaPayload): Promise<EscalaModel> {
     if (!this.rhService) {
       throw new Error("RHService não foi injetado.");
     }
 
-    // 1. CHECAGEM DE REGRAS DE NEGÓCIO (R1.F - Colaborador Ativo)
     for (const colaboradorId of data.colaboradores) {
-      // Usa o método do RHService que busca por id_colaborador
-      const colaborador = await this.rhService.getColaboradorById(
+      const colaborador = await this.rhService.getColaboradorAtivo(
         colaboradorId,
         data.unidade_id
       );
 
-      // Regra de Negócio: Somente colaboradores ATIVOS podem ser escalados.
-      if (!colaborador || colaborador.Status !== "ATIVO") {
+      if (!colaborador) {
         throw new Error(
-          `Colaborador ID ${colaboradorId} não está disponível ou ativo e não pode ser escalado.`
+          `Colaborador ID ${colaboradorId} não encontrado ou inativo na unidade ${data.unidade_id}.`
         );
       }
     }
 
-    // 2. PERSISTÊNCIA (Cria a Escala Head)
-    const { colaboradores, ...escalaData } = data;
-    const novaEscalaHead = await Escala.create(escalaData);
+    const novaEscalaHead = await Escala.create(data, { transaction: data.transaction });
 
-    // 3. PERSISTÊNCIA (Cria as entradas na tabela de ligação)
-    // Se Escala possui o método addColaboradores:
-    // await (novaEscalaHead as any).addColaboradores(colaboradores);
+    if ((novaEscalaHead as any).addColaboradores) {
+        await (novaEscalaHead as any).addColaboradores(data.colaboradores, { transaction: data.transaction });
+    }
 
     return novaEscalaHead.toJSON() as EscalaModel;
   }
 
-  /**
-   * R13: Altera o status da escala para 'APROVADA'.
-   * Usa a chave primária 'id_escala'.
-   */
   public async aprovarEscala(
-    id_escala: number, // PK da escala
-    aprovador_id: number // ID do usuário aprovador
+    id_escala: number,
+    aprovador_id: number
   ): Promise<EscalaModel> {
-    // Atualiza apenas se o status for 'PENDENTE'
     const [linhasAfetadas] = await Escala.update(
       { status: "APROVADA", aprovador_id: aprovador_id },
       {
@@ -78,7 +59,6 @@ export class EscalaService {
 
     if (linhasAfetadas === 0) {
       const escalaExistente = await Escala.findByPk(id_escala);
-
       if (!escalaExistente) {
         throw new Error(`Escala ID ${id_escala} não encontrada.`);
       }
@@ -87,19 +67,25 @@ export class EscalaService {
       );
     }
 
-    // Busca o registro atualizado para retornar o objeto completo
-    const escalaAprovada = (await Escala.findByPk(id_escala)) as Escala;
-
-    return escalaAprovada.toJSON() as EscalaModel;
+    return (await Escala.findByPk(id_escala)) as EscalaModel;
   }
 
-  public async gerarEscalaOtimizada(
-    demanda: any,
-    regras: any[],
-    colaboradores: any[]
-  ): Promise<any> {
-    console.log("Gerando escala otimizada com:", demanda, regras, colaboradores);
-    // Lógica de otimização de escala aqui
-    return { message: "Escala otimizada gerada com sucesso." };
+  public async gerarPropostaEscala(
+    unidade_id: number,
+    data_inicio: Date,
+    data_fim: Date
+  ): Promise<EscalaModel> {
+    // 🔑 CORRIGIDO: Payload preenchido com todos os campos obrigatórios (TS2739)
+    const mockPayload: CriarEscalaPayload = {
+      unidade_id: unidade_id,
+      data_escala: data_inicio,
+      data_inicio: data_inicio,
+      data_fim: data_fim,
+      criador_id: 1, // Assumindo ID sistema
+      status: "PENDENTE",
+      colaboradores: [1, 2, 3], 
+    };
+
+    return this.criarEscala(mockPayload);
   }
 }

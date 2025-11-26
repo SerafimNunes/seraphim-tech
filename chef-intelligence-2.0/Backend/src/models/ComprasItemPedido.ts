@@ -1,17 +1,17 @@
 // src/models/ComprasItemPedido.ts
-import { DataTypes, Model, Optional, ModelCtor } from 'sequelize';
-import { connection } from '../config/sequelize';
-import { IModelFactory } from '../config/types';
+import { DataTypes, Model, Optional, ModelCtor } from "sequelize";
+import { connection } from "../config/sequelize";
+import { IModelFactory } from "../config/types";
 // Assumindo que o ItemEstoque existe no path correto para resolver 2307
 
-import { ItemEstoqueModel } from './ItemEstoque';
-import { ComprasPedidoModel } from './ComprasPedido';
+import { ItemEstoqueModel } from "./ItemEstoque";
+import { ComprasPedidoModel } from "./ComprasPedido";
 
 export type StatusQualidade =
-  | 'PENDENTE'
-  | 'APROVADO'
-  | 'REPROVADO'
-  | 'DEVOLVIDO';
+  | "PENDENTE"
+  | "APROVADO"
+  | "REPROVADO"
+  | "DEVOLVIDO";
 
 export interface ComprasItemPedidoAttributes {
   id_item_pedido: number;
@@ -27,10 +27,10 @@ export interface ComprasItemPedidoAttributes {
 export interface ComprasItemPedidoCreationAttributes
   extends Optional<
     ComprasItemPedidoAttributes,
-    | 'id_item_pedido'
-    | 'status_qualidade'
-    | 'quantidade_recebida'
-    | 'preco_custo_unitario_real'
+    | "id_item_pedido"
+    | "status_qualidade"
+    | "quantidade_recebida"
+    | "preco_custo_unitario_real"
   > {}
 
 export interface ComprasItemPedidoModel
@@ -45,7 +45,7 @@ export interface ComprasItemPedidoModel
 
 export const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
   connection.define<ComprasItemPedidoModel>(
-    'ComprasItemPedido',
+    "ComprasItemPedido",
     {
       id_item_pedido: {
         type: DataTypes.INTEGER,
@@ -60,7 +60,7 @@ export const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
         allowNull: false,
         get() {
           return parseFloat(
-            this.getDataValue('quantidade_prevista') as unknown as string,
+            this.getDataValue("quantidade_prevista") as unknown as string
           );
         },
       },
@@ -71,8 +71,8 @@ export const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
         get() {
           return parseFloat(
             this.getDataValue(
-              'preco_custo_unitario_previsto',
-            ) as unknown as string,
+              "preco_custo_unitario_previsto"
+            ) as unknown as string
           );
         },
       },
@@ -83,7 +83,7 @@ export const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
         defaultValue: 0,
         get() {
           return parseFloat(
-            this.getDataValue('quantidade_recebida') as unknown as string,
+            this.getDataValue("quantidade_recebida") as unknown as string
           );
         },
       },
@@ -92,7 +92,7 @@ export const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
         type: DataTypes.DECIMAL(10, 2),
         allowNull: true,
         get() {
-          const value = this.getDataValue('preco_custo_unitario_real');
+          const value = this.getDataValue("preco_custo_unitario_real");
           if (value === null) return null;
           return parseFloat(value as unknown as string);
         },
@@ -100,31 +100,31 @@ export const ComprasItemPedido: ModelCtor<ComprasItemPedidoModel> =
       status_qualidade: {
         type: DataTypes.STRING(20),
         allowNull: false,
-        defaultValue: 'PENDENTE',
+        defaultValue: "PENDENTE",
       },
     },
     {
-      tableName: 'COMPRAS_ITENS_PEDIDO',
+      tableName: "COMPRAS_ITENS_PEDIDO",
       sequelize: connection,
       timestamps: true,
-      modelName: 'ComprasItemPedido',
-    } as any, // 🔑 CAST EXPLÍCITO para resolver o ERRO 2353
+      modelName: "ComprasItemPedido",
+    } as any // 🔑 CAST EXPLÍCITO para resolver o ERRO 2353
   );
 
 (ComprasItemPedido as any).associate = function (models: IModelFactory) {
   ComprasItemPedido.belongsTo(
     models.ComprasPedido as ModelCtor<ComprasPedidoModel>,
     {
-      foreignKey: 'id_pedido',
-      as: 'pedido',
-    },
+      foreignKey: "id_pedido",
+      as: "pedido",
+    }
   );
   ComprasItemPedido.belongsTo(
     models.ItemEstoque as ModelCtor<ItemEstoqueModel>,
     {
-      foreignKey: 'id_produto',
-      as: 'produto',
-    },
+      foreignKey: "id_produto",
+      as: "produto",
+    }
   );
 };
 

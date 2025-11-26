@@ -1,154 +1,146 @@
-// src/controllers/RHController.ts
+//backend/src/controllers/RHController.ts
 import { Request, Response } from 'express';
 import { RHService } from '../services/RHService';
+// 🔑 CORRIGIDO: Certifica-se de importar o EscalaService corretamente (exportado como Named Export)
 import { EscalaService } from '../services/EscalaService';
 import { StatusCodes } from 'http-status-codes';
 import { z, ZodError } from 'zod';
 
 import {
-  IPerfilIdeal,
-  IHistoricoPerformance,
-  IRegraColaborador,
-  IColaboradorBase,
+    IPerfilIdeal,
+    IHistoricoPerformance,
 } from '../config/types';
 
 const perfilIdealSchema = z.object({
-  cargo_id: z.number().int().positive(),
-  competencia_id: z.number().int().positive(),
+    cargo_id: z.number().int().positive(),
+    competencia_id: z.number().int().positive(),
 });
 
 const performanceSchema = z.object({
-  colaborador_id: z.number().int().positive(),
-  erros_registrados: z.number().nonnegative(),
-  desperdicio_total: z.number().nonnegative(),
+    colaborador_id: z.number().int().positive(),
+    erros_registrados: z.number().nonnegative(),
+    desperdicio_total: z.number().nonnegative(),
 });
 
 export class RHController {
-  private rhService: RHService;
-  private escalaService: EscalaService;
+    private rhService: RHService;
+    private escalaService: EscalaService;
 
-  constructor(
-    rhServiceInstance: RHService,
-    escalaServiceInstance: EscalaService,
-  ) {
-    this.rhService = rhServiceInstance;
-    this.escalaService = escalaServiceInstance;
-  }
-
-  async definirPerfilIdeal(req: Request, res: Response): Promise<Response> {
-    try {
-      const perfil = perfilIdealSchema.parse(req.body) as IPerfilIdeal;
-
-      await this.rhService.definirPerfilIdeal(perfil);
-
-      return res
-        .status(StatusCodes.CREATED)
-        .json({ message: 'Perfil Ideal definido com sucesso.' });
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return res.status(StatusCodes.BAD_REQUEST).json({
-          error: 'Erro de Validação: Dados de Perfil Ideal inválidos.',
-          details: error.issues,
-        });
-      }
-      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-        error: (error as Error).message || 'Falha ao definir perfil ideal.',
-      });
+    // 🔑 O Construtor recebe 2 argumentos, compatível com index.ts
+    constructor(rhServiceInstance: RHService, escalaServiceInstance: EscalaService) {
+        this.rhService = rhServiceInstance;
+        this.escalaService = escalaServiceInstance;
     }
-  }
 
-  async registrarPerformance(req: Request, res: Response): Promise<Response> {
-    try {
-      const data = performanceSchema.parse(req.body) as IHistoricoPerformance;
+    public getTurnoverAnalysis = async (req: Request, res: Response): Promise<Response> => {
+        try {
+            const querySchema = z.object({
+                unidade_id: z.preprocess(
+                    (a) => parseInt(z.string().parse(a), 10),
+                    z.number().int().positive(),
+                ),
+                ano: z.preprocess(
+                    (a) => parseInt(z.string().parse(a), 10),
+                    z.number().int().min(2000).max(new Date().getFullYear()),
+                ),
+            });
 
-      await this.rhService.registrarPerformance(data);
+            const { unidade_id, ano } = querySchema.parse(req.query);
+            const turnoverData = await this.rhService.getTurnoverAnalysis(unidade_id, ano);
 
-      return res
-        .status(StatusCodes.CREATED)
-        .json({ message: 'Performance registrada.' });
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return res.status(StatusCodes.BAD_REQUEST).json({
-          error: 'Erro de Validação: Dados de Performance inválidos.',
-          details: error.issues,
-        });
-      }
-      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-        error: (error as Error).message || 'Falha ao registrar performance.',
-      });
+            return res.status(StatusCodes.OK).json(turnoverData);
+        } catch (error) {
+            if (error instanceof ZodError) {
+                return res.status(StatusCodes.BAD_REQUEST).json({
+                    error: 'Erro de Validação nos parâmetros de consulta (Query Params).',
+                    details: error.issues,
+                });
+            }
+            console.error('[RHController] Erro ao buscar Turnover:', error);
+            return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+                error: (error as Error).message || 'Falha ao carregar análise de Turnover.',
+            });
+        }
     }
-  }
 
-  async gerarEscala(req: Request, res: Response): Promise<Response> {
-    try {
-      const { demanda, regras, colaboradores } = z
-        .object({
-          demanda: z.any(),
-          regras: z.array(z.any()),
-          colaboradores: z.array(z.any()),
-        })
-        .parse(req.body) as {
-        demanda: any;
-        regras: IRegraColaborador[];
-        colaboradores: IColaboradorBase[];
-      };
+    public definirPerfilIdeal = async (req: Request, res: Response): Promise<Response> => {
+        try {
+            const perfil = perfilIdealSchema.parse(req.body);
+            await this.rhService.definirPerfilIdeal(perfil as IPerfilIdeal);
 
-      const escalaSugerida = await this.escalaService.gerarEscalaOtimizada(
-        demanda,
-        regras,
-        colaboradores,
-      );
+            return res.status(StatusCodes.CREATED).json({
+                message: 'Perfil ideal definido (GPR-3: Lógica não implementada).',
+            });
+        } catch (error) {
+            if (error instanceof ZodError) {
+                return res.status(StatusCodes.BAD_REQUEST).json({
+                    error: 'Erro de Validação no Perfil Ideal.',
+                    details: error.issues,
+                });
+            }
+            return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+                error: (error as Error).message || 'Falha ao definir perfil ideal.',
+            });
+        }
+    };
 
-      return res.status(StatusCodes.OK).json({
-        message: 'Escala algorítmica sugerida.',
-        escala: escalaSugerida,
-      });
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return res.status(StatusCodes.BAD_REQUEST).json({
-          error: 'Erro de Validação: Dados de entrada inválidos.',
-          details: error.issues,
+    public registrarPerformance = async (req: Request, res: Response): Promise<Response> => {
+        try {
+            const performance = performanceSchema.parse(req.body);
+            await this.rhService.registrarPerformance(performance as IHistoricoPerformance);
+
+            return res.status(StatusCodes.CREATED).json({
+                message: 'Performance registrada (GPR-3: Lógica não implementada).',
+            });
+        } catch (error) {
+            if (error instanceof ZodError) {
+                return res.status(StatusCodes.BAD_REQUEST).json({
+                    error: 'Erro de Validação na Performance.',
+                    details: error.issues,
+                });
+            }
+            return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+                error: (error as Error).message || 'Falha ao registrar performance.',
+            });
+        }
+    };
+
+    async criarEscala(req: Request, res: Response): Promise<Response> {
+        return res.status(StatusCodes.NOT_IMPLEMENTED).json({
+            message: 'A rota de criação de escala deve ser acessada via /api/escala/ (EscalaController)',
         });
-      }
-      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-        error: (error as Error).message || 'Falha ao gerar escala.',
-      });
     }
-  }
 
-  async aprovarEscala(req: Request, res: Response): Promise<Response> {
-    try {
-      const escalaId = Number(req.params.id);
+    async aprovarEscala(req: Request, res: Response): Promise<Response> {
+        try {
+            const escalaId = Number(req.params.id);
 
-      const gerenteId = z
-        .object({ gerente_id: z.number().int().positive() })
-        .parse(req.body).gerente_id;
+            const gerenteId = z
+                .object({ gerente_id: z.number().int().positive() })
+                .parse(req.body).gerente_id;
 
-      if (!escalaId || escalaId <= 0) {
-        return res
-          .status(StatusCodes.BAD_REQUEST)
-          .json({ message: 'ID de escala inválido.' });
-      }
+            if (!escalaId || escalaId <= 0) {
+                return res
+                    .status(StatusCodes.BAD_REQUEST)
+                    .json({ message: 'ID de escala inválido.' });
+            }
 
-      const escalaAprovada = await this.escalaService.aprovarEscala(
-        escalaId,
-        gerenteId,
-      );
+            const escalaAprovada = await this.escalaService.aprovarEscala(escalaId, gerenteId);
 
-      return res.status(StatusCodes.OK).json({
-        message: 'Escala aprovada com sucesso.',
-        escala: escalaAprovada,
-      });
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return res.status(StatusCodes.BAD_REQUEST).json({
-          error: 'Erro de Validação: ID do Gerente inválido.',
-          details: error.issues,
-        });
-      }
-      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-        error: (error as Error).message || 'Falha ao aprovar escala.',
-      });
+            return res.status(StatusCodes.OK).json({
+                message: 'Escala aprovada com sucesso.',
+                escala: escalaAprovada,
+            });
+        } catch (error) {
+            if (error instanceof ZodError) {
+                return res.status(StatusCodes.BAD_REQUEST).json({
+                    error: 'Erro de Validação: ID do Gerente inválido.',
+                    details: error.issues,
+                });
+            }
+            return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+                error: (error as Error).message || 'Falha ao aprovar escala.',
+            });
+        }
     }
-  }
 }

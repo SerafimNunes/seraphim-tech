@@ -1,9 +1,12 @@
-import { Transaction } from 'sequelize';
-import { connection } from '../config/sequelize';
-import FichaTecnica, { FichaTecnicaModel } from '../models/FichaTecnica';
-import ItemEstoque from '../models/ItemEstoque';
-import Decimal from 'decimal.js';
-// Assumindo que você importou as interfaces de Model do seu arquivo
+// src/services/FichaTecnicaService.ts
+
+import { Transaction } from "sequelize";
+import { connection } from "../config/sequelize";
+import FichaTecnica, { FichaTecnicaModel } from "../models/FichaTecnica";
+import ItemEstoque from "../models/ItemEstoque";
+import Decimal from "decimal.js";
+// 🔑 NOVO: Importa a interface de Demanda Prevista do novo ForecastService
+import { DemandaPrevistaItem } from "./ForecastService";
 
 // Extende os atributos do model para o payload
 interface FichaTecnicaItemPayload {
@@ -11,13 +14,21 @@ interface FichaTecnicaItemPayload {
   quantidade_necessaria: number;
 }
 
+// 🔑 NOVO: Interface de DTO de Saída para o Planejamento (R1)
+export interface InsumoAgregadoNecessidade {
+  id_produto: number; // ID do Insumo
+  unidade_medida: string;
+  quantidade_total_necessaria: number;
+}
+
 export class FichaTecnicaService {
   /**
    * Função Auxiliar Crítica: Recalcula e atualiza o Custo Médio de Produção (CMP) do Produto Pai.
+   * ... (Seu código existente aqui)
    */
   public async recalcularCustoFichaTecnica(
     idProdutoPai: number,
-    transaction?: Transaction,
+    transaction?: Transaction
   ): Promise<number> {
     // 1. Busca todos os itens (insumos) da Ficha Técnica e os dados do ItemEstoque Filho (insumo)
     const composicao = await FichaTecnica.findAll({
@@ -25,8 +36,8 @@ export class FichaTecnicaService {
       include: [
         {
           model: ItemEstoque,
-          as: 'produto_filho',
-          attributes: ['preco_custo_unitario'],
+          as: "produto_filho",
+          attributes: ["preco_custo_unitario"],
         },
       ],
       transaction,
@@ -39,7 +50,7 @@ export class FichaTecnicaService {
 
       const custoInsumo = item.produto_filho?.preco_custo_unitario
         ? new Decimal(
-            item.produto_filho.preco_custo_unitario as unknown as string,
+            item.produto_filho.preco_custo_unitario as unknown as string
           )
         : new Decimal(0);
 
@@ -52,24 +63,79 @@ export class FichaTecnicaService {
 
     if (!produtoPai) {
       throw new Error(
-        `Produto Pai (ID: ${idProdutoPai}) não encontrado para atualização de CMP.`,
+        `Produto Pai (ID: ${idProdutoPai}) não encontrado para atualização de CMP.`
       );
     }
 
     await produtoPai.update(
       { preco_custo_unitario: custoTotal.toNumber() }, // 🔑 FIX: custoTotal agora é reconhecido
-      { transaction },
+      { transaction }
     );
 
     return custoTotal.toNumber(); // 🔑 FIX: custoTotal agora é reconhecido
-  } // --- MÉTODOS DE NEGÓCIO ---
+  }
+
+  /**
+   * 🎯 R11: Explode a demanda de produtos finais (Forecast) em insumos necessários.
+   * Este é o motor que liga o ForecastService ao PlanejamentoService.
+   */
+  public async explodirDemanda(
+    demanda: DemandaPrevistaItem[], // O output do ForecastService
+    unidadeId: number // R4
+  ): Promise<InsumoAgregadoNecessidade[]> {
+    const necessidades: { [id: number]: InsumoAgregadoNecessidade } = {};
+
+    for (const itemPrevisto of demanda) {
+      // 1. Busca a Ficha Técnica do Produto Previsto (R4 garantido pelo findFichaTecnica)
+      // O include em findFichaTecnica já traz o produto_filho com 'unidade_medida'.
+      const composicao = await this.findFichaTecnica(
+        itemPrevisto.id_produto,
+        unidadeId
+      );
+
+      // 2. Itera sobre os insumos e agrega a quantidade total necessária
+      for (const itemComposicao of composicao) {
+        const idInsumo = (itemComposicao as any).id_produto_filho;
+
+        // Quantidade total necessária para atender o Forecast
+        const qtdNecessaria =
+          (itemComposicao as any).quantidade_necessaria *
+          itemPrevisto.quantidade_prevista;
+
+        if (!necessidades[idInsumo]) {
+          necessidades[idInsumo] = {
+            id_produto: idInsumo,
+            // Acessa a unidade_medida via associação (produto_filho)
+            unidade_medida: (itemComposicao as any).produto_filho
+              .unidade_medida,
+            quantidade_total_necessaria: 0,
+          };
+        }
+
+        // 🔑 Agregação da necessidade total
+        necessidades[idInsumo].quantidade_total_necessaria += qtdNecessaria;
+      }
+    }
+
+    // 3. Converte o mapa para um array de DTOs de saída
+    return Object.values(necessidades).map((n) => ({
+      ...n,
+      // R1: Tipagem Rígida - Arredonda o total
+      quantidade_total_necessaria: parseFloat(
+        n.quantidade_total_necessaria.toFixed(2)
+      ),
+    }));
+  }
+
+  // --- MÉTODOS DE NEGÓCIO ---
   /**
    * Cria ou Substitui COMPLETAMENTE a Ficha Técnica de um Produto Pai.
+   * ... (Seu código existente aqui)
    */
   public async storeOrUpdate(
     idProdutoPai: number,
     novosItens: FichaTecnicaItemPayload[],
-    unidadeId: number,
+    unidadeId: number
   ): Promise<{ itens: FichaTecnicaModel[]; novoCusto: number }> {
     // 🔑 2.C: Inicia a Transação
     const transaction: Transaction = await connection.transaction();
@@ -82,7 +148,7 @@ export class FichaTecnicaService {
       });
       if (!produtoPai) {
         throw new Error(
-          'Produto Pai não encontrado ou não pertence à sua unidade.',
+          "Produto Pai não encontrado ou não pertence à sua unidade."
         );
       } // 2. Apaga todos os itens existentes
 
@@ -97,12 +163,12 @@ export class FichaTecnicaService {
           id_produto_pai: idProdutoPai,
           unidade_id: unidadeId,
         })),
-        { transaction, validate: true },
+        { transaction, validate: true }
       ); // 4. Recalcula o Custo Médio de Produção (CMP)
 
       const novoCusto = await this.recalcularCustoFichaTecnica(
         idProdutoPai,
-        transaction,
+        transaction
       );
 
       await transaction.commit(); // 🔑 2.C: Commit
@@ -111,13 +177,15 @@ export class FichaTecnicaService {
       await transaction.rollback(); // 🔑 2.C: Rollback
       throw error;
     }
-  } /**
+  }
+  /**
    * Atualiza a quantidade de um item específico da Ficha Técnica e recalcula o CMP.
+   * ... (Seu código existente aqui)
    */
   public async updateItemQuantidade(
     idItem: number,
     quantidade_necessaria: number,
-    unidadeId: number,
+    unidadeId: number
   ): Promise<{ item: FichaTecnicaModel; novoCusto: number }> {
     const transaction: Transaction = await connection.transaction();
 
@@ -125,7 +193,7 @@ export class FichaTecnicaService {
       const item = await FichaTecnica.findByPk(idItem, { transaction }); // 🔑 2.D/R4: Validação da posse do item (o item deve ter a unidade_id)
       if (!item || (item as any).unidade_id !== unidadeId) {
         throw new Error(
-          'Item da Ficha Técnica não encontrado ou não pertence à sua unidade.',
+          "Item da Ficha Técnica não encontrado ou não pertence à sua unidade."
         );
       }
 
@@ -133,7 +201,7 @@ export class FichaTecnicaService {
 
       const novoCusto = await this.recalcularCustoFichaTecnica(
         item.id_produto_pai,
-        transaction,
+        transaction
       );
 
       await transaction.commit();
@@ -142,12 +210,14 @@ export class FichaTecnicaService {
       await transaction.rollback();
       throw error;
     }
-  } /**
+  }
+  /**
    * Remove um item específico da Ficha Técnica e recalcula o CMP.
+   * ... (Seu código existente aqui)
    */
   public async deleteItem(
     idItem: number,
-    unidadeId: number,
+    unidadeId: number
   ): Promise<{
     id_removido: number;
     id_produto_pai: number;
@@ -160,7 +230,7 @@ export class FichaTecnicaService {
 
       if (!item || (item as any).unidade_id !== unidadeId) {
         throw new Error(
-          'Item da Ficha Técnica não encontrado ou não pertence à sua unidade.',
+          "Item da Ficha Técnica não encontrado ou não pertence à sua unidade."
         );
       }
 
@@ -169,7 +239,7 @@ export class FichaTecnicaService {
 
       const novoCusto = await this.recalcularCustoFichaTecnica(
         idProdutoPai,
-        transaction,
+        transaction
       );
 
       await transaction.commit();
@@ -178,13 +248,15 @@ export class FichaTecnicaService {
       await transaction.rollback();
       throw error;
     }
-  } /**
+  }
+  /**
    * Busca a Ficha Técnica de um Produto Pai (READ).
+   * ... (Seu código existente aqui)
    */
   public async findFichaTecnica(
     idProdutoPai: number,
     unidadeId: number,
-    transaction?: Transaction, // 🔑 CORREÇÃO: Adiciona transação opcional
+    transaction?: Transaction // 🔑 CORREÇÃO: Adiciona transação opcional
   ): Promise<FichaTecnicaModel[]> {
     // 🔑 2.D/R4: Primeiro, verifica a posse do produto pai (Produto Pai pertence à unidade?)
     const produtoPai = await ItemEstoque.findOne({
@@ -200,12 +272,12 @@ export class FichaTecnicaService {
       include: [
         {
           model: ItemEstoque,
-          as: 'produto_filho',
+          as: "produto_filho",
           attributes: [
-            'id_produto',
-            'nome',
-            'unidade_medida',
-            'preco_custo_unitario',
+            "id_produto",
+            "nome",
+            "unidade_medida",
+            "preco_custo_unitario",
           ],
         },
       ],
